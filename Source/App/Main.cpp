@@ -119,7 +119,17 @@ public:
                 case 7: c.project.setJamPattern (0, 0, c.currentPattern()); c.project.setJamAudio (1, 0, paths::starterKit().getChildFile ("Shaker.wav"), 1, 0); break;
                 case 8: shot ("jam"); c.openInChopShop (paths::starterKit().getChildFile ("808 F.wav"), -1, {}); break;
                 case 9: shot ("chop"); break;
-                case 10: { juce::String err; Engine::ExportOptions o; o.file = dir.getChildFile ("song.wav"); o.stems = true;
+                case 10: { // give the 808 + synth some notes and put effects on the kit
+                           int pat = c.currentPattern();
+                           auto chs = c.project.channels();
+                           int id808 = chs.getChild (1).getProperty (ids::id), idSyn = chs.getChild (2).getProperty (ids::id);
+                           c.project.addNote (pat, id808, 0, 1.5, 36, 0.9f);
+                           c.project.addNote (pat, id808, 2, 1.0, 39, 0.9f);
+                           for (int k : { 60, 63, 67 }) c.project.addNote (pat, idSyn, 0, 3.0, k, 0.7f);
+                           c.project.setSlot (1, 1, "builtin", "Gubee Delay", {});
+                           c.project.setSlot (0, 0, "builtin", "Gubee Limiter", {});
+                           c.project.addModulator ("mx:3:pan", "Synth pan wobble");
+                           juce::String err; Engine::ExportOptions o; o.file = dir.getChildFile ("song.wav"); o.stems = true;
                            for (int i = 0; i < numMixerTracks; ++i) o.trackNames.add (c.project.mixerTrack (i).getProperty (ids::name).toString());
                            c.engine->storeStatesToTree(); c.engine->syncNow();
                            juce::Thread::sleep (300);
@@ -142,6 +152,30 @@ public:
                         log ("pitch +12 length ratio: " + juce::String ((double) pt.getNumSamples() / d->buffer.getNumSamples(), 3));
                         tools::writeWav (dir.getChildFile ("stretched.wav"), st, d->sampleRate);
                         tools::writeWav (dir.getChildFile ("pitched.wav"), pt, d->sampleRate);
+                    }
+                    for (auto name : BuiltinRegistry::effects())
+                    {
+                        auto p = BuiltinRegistry::create (name);
+                        p->prepareToPlay (44100, 512);
+                        juce::AudioBuffer<float> buf (2, 512); juce::MidiBuffer mb;
+                        float peak = 0; bool finite = true;
+                        for (int blk = 0; blk < 172; ++blk)
+                        {
+                            for (int i = 0; i < 512; ++i) { float v = blk < 40 ? 0.5f * std::sin ((blk * 512 + i) * 0.0627f) : 0.0f; buf.setSample (0, i, v); buf.setSample (1, i, v); }
+                            p->processBlock (buf, mb);
+                            for (int i = 0; i < 512; ++i) { float v = buf.getSample (0, i); if (! std::isfinite (v)) finite = false; peak = juce::jmax (peak, std::abs (v)); }
+                        }
+                        log (name + ": peak " + juce::String (peak, 3) + (finite ? "" : "  NaN!"));
+                    }
+                    for (auto name : BuiltinRegistry::instruments())
+                    {
+                        auto p = BuiltinRegistry::create (name);
+                        p->prepareToPlay (44100, 512);
+                        juce::AudioBuffer<float> buf (2, 512); juce::MidiBuffer mb;
+                        mb.addEvent (juce::MidiMessage::noteOn (1, 48, 0.9f), 0);
+                        float peak = 0;
+                        for (int blk = 0; blk < 40; ++blk) { p->processBlock (buf, mb); mb.clear(); peak = juce::jmax (peak, buf.getMagnitude (0, 512)); }
+                        log (name + ": peak " + juce::String (peak, 3));
                     }
                     log ("bpm from name 'Dark_Loop_140bpm_Cmin': " + juce::String (tools::bpmFromName ("Dark_Loop_140bpm_Cmin")) + " key " + tools::keyFromName ("Dark_Loop_140bpm_Cmin"));
                     log ("done"); quit(); break;

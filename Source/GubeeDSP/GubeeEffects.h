@@ -365,20 +365,52 @@ public:
         return l;
     }
 
-    void prepareToPlay (double s, int bs) override { sr = s; lim.prepare ({ s, (juce::uint32) bs, 2 }); }
+    // 1.5 ms look-ahead peak limiter: never exceeds the ceiling.
+    void prepareToPlay (double s, int) override
+    {
+        sr = s;
+        look = juce::jmax (1, (int) (s * 0.0015));
+        delay.setSize (2, look + 1); delay.clear();
+        win.assign ((size_t) look + 1, 0.0f);
+        pos = 0; gainState = 1.0f;
+        setLatencySamples (look);
+    }
 
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
     {
         juce::ScopedNoDenormals nd;
-        b.applyGain (juce::Decibels::decibelsToGain (p ("gain")));
-        lim.setThreshold (p ("ceiling"));
-        lim.setRelease (p ("release"));
-        juce::dsp::AudioBlock<float> blk (b);
-        auto sub = blk.getSubsetChannelBlock (0, (size_t) juce::jmin (2, b.getNumChannels()));
-        lim.process (juce::dsp::ProcessContextReplacing<float> (sub));
+        const float in = juce::Decibels::decibelsToGain (p ("gain"));
+        const float ceiling = juce::Decibels::decibelsToGain (p ("ceiling"));
+        const float rel = (float) std::exp (-1.0 / (p ("release") * 0.001 * sr));
+        const int nc = juce::jmin (2, b.getNumChannels()), n = b.getNumSamples();
+        const int size = look + 1;
+        for (int i = 0; i < n; ++i)
+        {
+            float peak = 0;
+            float x[2] = { 0, 0 };
+            for (int c = 0; c < nc; ++c) { x[c] = b.getSample (c, i) * in; peak = juce::jmax (peak, std::abs (x[c])); }
+            win[(size_t) pos] = peak;
+            float mx = 0;
+            for (auto v : win) mx = juce::jmax (mx, v);          // peak over the look-ahead window
+            const float target = mx > ceiling ? ceiling / mx : 1.0f;
+            gainState = target < gainState ? target : target + (gainState - target) * rel;
+            const int rd = (pos + 1) % size;
+            for (int c = 0; c < nc; ++c)
+            {
+                delay.setSample (c, pos, x[c]);
+                float y = delay.getSample (c, rd) * gainState;
+                b.setSample (c, i, juce::jlimit (-ceiling, ceiling, y));
+            }
+            pos = rd;
+        }
     }
 
+    double getTailLengthSeconds() const override { return 0.0; }
+
 private:
-    juce::dsp::Limiter<float> lim;
+    juce::AudioBuffer<float> delay;
+    std::vector<float> win;
+    int look = 64, pos = 0;
+    float gainState = 1.0f;
 };
 }
