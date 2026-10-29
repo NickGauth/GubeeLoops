@@ -205,6 +205,8 @@ public:
     bool exportAudio (const ExportOptions&, std::function<bool (float)> progress, juce::String& error);
 
     double getSampleRate() const { return sampleRate; }
+    /** Renders the next block into out (testing / offline use; don't call while a device is running). */
+    void renderBlock (juce::AudioBuffer<float>& out) { process (nullptr, 0, out.getArrayOfWritePointers(), out.getNumChannels(), out.getNumSamples()); }
     float getCpu() const { return (float) devices.getCpuUsage(); }
     std::function<void (const juce::String&)> onStatus;
 

@@ -134,7 +134,27 @@ public:
                            c.engine->storeStatesToTree(); c.engine->syncNow();
                            juce::Thread::sleep (300);
                            bool ok = c.engine->exportAudio (o, nullptr, err); log ("export song: " + juce::String (ok ? "ok" : err)); break; }
-                case 11: c.engine->play(); break;
+                case 11:
+                {
+                    c.engine->launchJam (0, 0);
+                    c.engine->launchJam (1, 0);
+                    const double sr = c.engine->getSampleRate();
+                    juce::AudioBuffer<float> all (2, (int) (sr * 60.0 / c.project.tempo() * 16)), blk (2, 512);
+                    all.clear();
+                    int pos = 0, launched = 0;
+                    while (pos + 512 <= all.getNumSamples())
+                    {
+                        c.engine->renderBlock (blk);
+                        for (int ch = 0; ch < 2; ++ch) all.copyFrom (ch, pos, blk, ch, 0, 512);
+                        pos += 512;
+                        if (pos > sr * 60.0 / c.project.tempo() * 6 && launched == 0) { c.engine->stopJamTrack (1); launched = 1; }
+                    }
+                    log ("jam playing: t0=" + juce::String (c.engine->jamPlayingScene (0)) + " t1=" + juce::String (c.engine->jamPlayingScene (1))
+                         + " peak=" + juce::String (all.getMagnitude (0, all.getNumSamples()), 3));
+                    tools::writeWav (dir.getChildFile ("jam.wav"), all, sr);
+                    c.engine->stop();
+                    break;
+                }
                 case 15: c.engine->stop(); c.project.save (dir.getChildFile ("test.gubee")); log ("saved"); break;
                 case 16: { bool ok = c.openProject (dir.getChildFile ("test.gubee")); log ("reopen: " + juce::String (ok ? "ok" : "fail")
                                + " channels=" + juce::String (c.project.channels().getNumChildren())); break; }
