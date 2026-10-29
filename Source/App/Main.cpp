@@ -118,7 +118,22 @@ public:
                 case 6: shot ("mixer"); c.project.setSlot (1, 0, "builtin", "Gubee Reverb", {}); mc->showView (viewJam); break;
                 case 7: c.project.setJamPattern (0, 0, c.currentPattern()); c.project.setJamAudio (1, 0, paths::starterKit().getChildFile ("Shaker.wav"), 1, 0); break;
                 case 8: shot ("jam"); c.openInChopShop (paths::starterKit().getChildFile ("808 F.wav"), -1, {}); break;
-                case 9: shot ("chop"); break;
+                case 9:
+                {
+                    shot ("chop");
+                    for (auto name : { "Gubee FM", "Gubee Comp", "Gubee Scope", "Gubee Drum Synth", "Gubee Wavetable", "Gubee Amp" })
+                    {
+                        auto proc = BuiltinRegistry::create (name);
+                        proc->prepareToPlay (44100, 512);
+                        std::unique_ptr<juce::AudioProcessorEditor> ed (proc->createEditor());
+                        auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+                        juce::FileOutputStream os (dir.getChildFile (juce::String ("plugin-") + name + ".png"));
+                        os.setPosition (0); os.truncate();
+                        juce::PNGImageFormat().writeImageToStream (img, os);
+                        ed.reset();
+                    }
+                    break;
+                }
                 case 10: { // give the 808 + synth some notes and put effects on the kit
                            int pat = c.currentPattern();
                            auto chs = c.project.channels();
@@ -197,6 +212,25 @@ public:
                         for (int blk = 0; blk < 40; ++blk) { p->processBlock (buf, mb); mb.clear(); peak = juce::jmax (peak, buf.getMagnitude (0, 512)); }
                         log (name + ": peak " + juce::String (peak, 3));
                     }
+                    auto measure = [] (juce::AudioProcessor& proc, float inHz)
+                    {
+                        proc.prepareToPlay (44100, 512);
+                        juce::AudioBuffer<float> buf (2, 512); juce::MidiBuffer mb;
+                        std::vector<float> outv;
+                        for (int blk = 0; blk < 120; ++blk)
+                        {
+                            for (int i = 0; i < 512; ++i) { float v = 0.5f * (float) std::sin ((blk * 512 + i) * juce::MathConstants<double>::twoPi * inHz / 44100.0); buf.setSample (0, i, v); buf.setSample (1, i, v); }
+                            proc.processBlock (buf, mb);
+                            if (blk > 80) for (int i = 0; i < 512; ++i) outv.push_back (buf.getSample (0, i));
+                        }
+                        return PitchDetector::detect (outv.data(), 4096, 44100, 50, 2000);
+                    };
+                    { PitchProcessor pp; pp.apvts.getParameter ("semis")->setValueNotifyingHost (pp.apvts.getParameter ("semis")->convertTo0to1 (12.0f));
+                      log ("Pitch +12 on 220 Hz -> " + juce::String (measure (pp, 220.0f), 1) + " Hz (expect 440)"); }
+                    { PitchProcessor pp; pp.apvts.getParameter ("semis")->setValueNotifyingHost (pp.apvts.getParameter ("semis")->convertTo0to1 (-5.0f));
+                      log ("Pitch -5 on 440 Hz -> " + juce::String (measure (pp, 440.0f), 1) + " Hz (expect 329.6)"); }
+                    { TuneProcessor tp; tp.apvts.getParameter ("humanize")->setValueNotifyingHost (0.0f);
+                      log ("Tune C minor on 450 Hz -> " + juce::String (measure (tp, 450.0f), 1) + " Hz (expect 466.2)"); }
                     log ("bpm from name 'Dark_Loop_140bpm_Cmin': " + juce::String (tools::bpmFromName ("Dark_Loop_140bpm_Cmin")) + " key " + tools::keyFromName ("Dark_Loop_140bpm_Cmin"));
                     log ("done"); quit(); break;
                 }

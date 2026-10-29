@@ -9,6 +9,11 @@ class Bass808Processor : public GubeeProcessor
 {
 public:
     Bass808Processor() : GubeeProcessor ("Gubee 808", true, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Classic 808", {} }, { "Long Trap 808", { { "decay", 2.5f }, { "drive", 0.5f }, { "glide", 0.1f } } },
+                 { "Punchy Short", { { "decay", 0.5f }, { "punch", 24 } } }, { "Distorted 808", { { "drive", 0.9f }, { "tone", 4000 } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {
@@ -94,6 +99,13 @@ public:
     {
         for (int i = 0; i < 12; ++i) synth.addVoice (new Voice (*this));
         synth.addSound (new Sound());
+    }
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Init", {} }, { "Warm Pad", { { "attack", 0.8f }, { "release", 1.5f }, { "cutoff", 1800 }, { "detune", 18 } } },
+                 { "Square Lead", { { "wave1", 1 }, { "wave2", 1 }, { "cutoff", 5000 }, { "envamt", 0.1f } } },
+                 { "Bass", { { "wave2", 0 }, { "octave2", -1 }, { "cutoff", 900 }, { "sustain", 0.5f }, { "release", 0.1f } } },
+                 { "Pluck", { { "sustain", 0 }, { "decay", 0.3f }, { "envamt", 0.7f }, { "cutoff", 600 } } } };
     }
 
     static APVTS::ParameterLayout layout()

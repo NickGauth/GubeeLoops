@@ -165,12 +165,14 @@ void showInstrumentMenu (AppContext& ctx, juce::Component* target,
     m.addItem (1, "Gubee Drum Pads (starter kit)");
     m.addItem (2, "Gubee Drum Pads (empty)");
     m.addItem (3, "Gubee Sampler (empty)");
-    m.addItem (4, "Gubee 808");
-    m.addItem (5, "Gubee Synth");
+    auto builtinList = BuiltinRegistry::instruments();
+    const char* desc[] = { "808 bass", "Subtractive synth", "FM synth (keys, bells, bass)", "Wavetable synth", "Supersaw (pads, leads)",
+                           "Electric piano / clav", "Drawbar organ", "Plucked strings (guitar, harp)", "Synth drum kit" };
+    for (int i = 0; i < builtinList.size(); ++i) m.addItem (200 + i, builtinList[i] + "   -  " + juce::String (desc[i]));
     juce::PopupMenu plug;
     auto types = ctx.plugins.known.getTypes();
     std::vector<juce::PluginDescription> inst;
-    for (auto& t : types) if (t.isInstrument) inst.push_back (t);
+    for (auto& t : types) if (t.isInstrument && ! t.name.startsWith ("Gubee ")) inst.push_back (t);
     std::sort (inst.begin(), inst.end(), [] (auto& a, auto& b) { return a.name.compareIgnoreCase (b.name) < 0; });
     for (size_t i = 0; i < inst.size(); ++i) plug.addItem (100 + (int) i, inst[i].name + "  (" + inst[i].manufacturerName + ")");
     if (inst.empty()) plug.addItem (-1, "No instrument plugins found yet", false);
@@ -179,11 +181,11 @@ void showInstrumentMenu (AppContext& ctx, juce::Component* target,
     m.addItem (50, "Find / manage plugins...");
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target), [&ctx, inst, cb] (int r)
     {
+        auto builtins = BuiltinRegistry::instruments();
         if (r == 1) cb ("pads-kit", {}, {}, "Gubee Kit");
         else if (r == 2) cb ("pads", {}, {}, "Drum Pads");
         else if (r == 3) cb ("sampler", {}, {}, "Sampler");
-        else if (r == 4) cb ("builtin", "Gubee 808", {}, "Gubee 808");
-        else if (r == 5) cb ("builtin", "Gubee Synth", {}, "Gubee Synth");
+        else if (r >= 200 && r < 200 + builtins.size()) cb ("builtin", builtins[r - 200], {}, builtins[r - 200]);
         else if (r == 50) { if (ctx.openPluginManager) ctx.openPluginManager(); }
         else if (r >= 100) cb ("plugin", {}, PluginHost::descToXml (inst[(size_t) (r - 100)]), inst[(size_t) (r - 100)].name);
     });
@@ -194,10 +196,15 @@ void showEffectMenu (AppContext& ctx, juce::Component* target, std::function<voi
     juce::PopupMenu m;
     m.addSectionHeader ("Gubee effects");
     auto fx = BuiltinRegistry::effects();
-    for (int i = 0; i < fx.size(); ++i) m.addItem (1 + i, fx[i]);
+    for (auto& [cat, names] : BuiltinRegistry::effectCategories())
+    {
+        juce::PopupMenu sub;
+        for (auto& nm : names) sub.addItem (1 + fx.indexOf (nm), nm.fromFirstOccurrenceOf ("Gubee ", false, false));
+        m.addSubMenu (cat, sub);
+    }
     juce::PopupMenu plug;
     std::vector<juce::PluginDescription> effects;
-    for (auto& t : ctx.plugins.known.getTypes()) if (! t.isInstrument) effects.push_back (t);
+    for (auto& t : ctx.plugins.known.getTypes()) if (! t.isInstrument && ! t.name.startsWith ("Gubee ")) effects.push_back (t);
     std::sort (effects.begin(), effects.end(), [] (auto& a, auto& b) { return a.name.compareIgnoreCase (b.name) < 0; });
     for (size_t i = 0; i < effects.size(); ++i) plug.addItem (100 + (int) i, effects[i].name + "  (" + effects[i].manufacturerName + ")");
     if (effects.empty()) plug.addItem (-1, "No effect plugins found yet", false);

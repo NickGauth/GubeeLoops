@@ -48,6 +48,7 @@ public:
     std::function<void (int, int)> openSlotEditor;
     std::function<void (juce::AudioProcessor*, const juce::String&)> openProcessorWindow;
     std::function<void()> openPluginManager;
+    std::function<void (int)> openMidiTools;
 
     void status (const juce::String& s) { if (setStatus) setStatus (s); }
 

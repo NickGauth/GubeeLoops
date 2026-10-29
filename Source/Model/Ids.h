@@ -25,6 +25,9 @@ GUBEE_ID (points)
 // pads / jam / mods
 GUBEE_ID (end) GUBEE_ID (choke) GUBEE_ID (output) GUBEE_ID (scene) GUBEE_ID (scenes) GUBEE_ID (shape)
 GUBEE_ID (rate) GUBEE_ID (depth) GUBEE_ID (base) GUBEE_ID (enabled)
+// midi tools / learn / sidechain
+GUBEE_ID (arp) GUBEE_ID (arpRate) GUBEE_ID (arpOct) GUBEE_ID (arpGate) GUBEE_ID (chord) GUBEE_ID (scale) GUBEE_ID (scaleRoot)
+GUBEE_ID (MIDIMAP) GUBEE_ID (MAP) GUBEE_ID (cc) GUBEE_ID (sc)
 // mixer
 GUBEE_ID (route) GUBEE_ID (sendTo) GUBEE_ID (sendLevel)
 #undef GUBEE_ID

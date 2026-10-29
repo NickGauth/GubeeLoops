@@ -232,6 +232,7 @@ struct ChannelRack::Row : public juce::Component
         m.addItem (3, "Rename...");
         m.addItem (4, "Change colour");
         if (kind == "sampler") { m.addItem (5, "Open sample in Chop Shop"); m.addItem (6, "Replace sample..."); }
+        m.addItem (12, "MIDI tools (arpeggiator, chord, scale lock)...");
         m.addItem (9, "Fill every 4 steps");
         m.addItem (10, "Fill every 2 steps");
         m.addItem (11, "Clear steps in this pattern");
@@ -274,6 +275,7 @@ struct ChannelRack::Row : public juce::Component
                 pr.beginEdit ("Fill steps");
                 for (int s = 0; s < rack.numSteps(); s += (r == 9 ? 4 : 2)) setStep (s, true);
             }
+            else if (r == 12 && c2.openMidiTools) c2.openMidiTools (id);
             else if (r == 11)
             {
                 pr.beginEdit ("Clear steps");
@@ -397,13 +399,8 @@ void ChannelRack::timerCallback()
 void ChannelRack::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
     auto pat = ctx.project.findPattern (ctx.currentPattern());
-    g.drawText ("Channel Rack  -  " + pat.getProperty (ids::name).toString(), head.reduced (10, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36), "Channel Rack", pat.getProperty (ids::name).toString());
     if (rows.isEmpty())
     {
         g.setColour (col::textDim);

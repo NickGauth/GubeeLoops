@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [ app, plugins ]
+        part: [ app, plugins-1, plugins-2, plugins-3, plugins-4 ]
     steps:
       - uses: actions/checkout@v5
 
@@ -35,9 +35,11 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          $app = if ("${{ matrix.part }}" -eq "app") { "ON" } else { "OFF" }
-          $plg = if ("${{ matrix.part }}" -eq "plugins") { "ON" } else { "OFF" }
-          cmake -S . -B build -A x64 -DGUBEE_BUILD_APP=$app -DGUBEE_BUILD_PLUGINS=$plg "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR" *>&1 | Tee-Object -FilePath ci.log
+          $part = "${{ matrix.part }}"
+          $app = if ($part -eq "app") { "ON" } else { "OFF" }
+          $plg = if ($part -like "plugins-*") { "ON" } else { "OFF" }
+          $grp = if ($part -like "plugins-*") { $part.Substring(8) } else { "0" }
+          cmake -S . -B build -A x64 -DGUBEE_BUILD_APP=$app -DGUBEE_BUILD_PLUGINS=$plg "-DGUBEE_PLUGIN_GROUP=$grp" "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR" *>&1 | Tee-Object -FilePath ci.log
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Build
@@ -95,7 +97,7 @@ jobs:
           mkdir pub && cd pub
           git init -q -b windows-build
           cp -r ../dl/gubee-app/* .
-          cp -r ../dl/gubee-plugins/* .
+          for d in ../dl/gubee-plugins-*; do cp -r "$d"/* .; done
           echo "Built from ${GITHUB_SHA} on $(date -u)" > BUILD_INFO.txt
           git config user.name "gubee-ci"
           git config user.email "ci@users.noreply.github.com"

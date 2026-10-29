@@ -51,6 +51,41 @@ private:
     double value = 0, startValue = 0;
 };
 
+/** Transport button that draws its icon. */
+class IconButton : public juce::Button
+{
+public:
+    enum Icon { play, stop, record, metronome };
+    explicit IconButton (Icon i) : juce::Button ({}), icon (i) {}
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        getLookAndFeel().drawButtonBackground (g, *this, findColour (juce::TextButton::buttonColourId), over, down);
+        auto r = getLocalBounds().toFloat().withSizeKeepingCentre (14.0f, 14.0f);
+        const bool on = getToggleState();
+        auto c = on ? (icon == record ? juce::Colours::white : col::bg) : (icon == record ? juce::Colour (0xffe05050) : col::text);
+        g.setColour (c);
+        juce::Path p;
+        switch (icon)
+        {
+            case play:
+                if (on) { p.addRoundedRectangle (r.getX() + 1, r.getY(), 4.5f, r.getHeight(), 1.0f); p.addRoundedRectangle (r.getRight() - 5.5f, r.getY(), 4.5f, r.getHeight(), 1.0f); }
+                else p.addTriangle (r.getX() + 2, r.getY(), r.getX() + 2, r.getBottom(), r.getRight(), r.getCentreY());
+                break;
+            case stop: p.addRoundedRectangle (r.reduced (1.5f), 2.0f); break;
+            case record: p.addEllipse (r.reduced (1.0f)); break;
+            case metronome:
+                p.addTriangle (r.getCentreX(), r.getY(), r.getX() + 1, r.getBottom(), r.getRight() - 1, r.getBottom());
+                g.fillPath (p);
+                g.setColour (on ? col::accent : col::panelHi);
+                g.drawLine (r.getCentreX(), r.getBottom() - 3, r.getRight() - 1, r.getY() + 2, 1.6f);
+                return;
+        }
+        g.fillPath (p);
+    }
+private:
+    Icon icon;
+};
+
 class TopBar : public juce::Component, private juce::Timer, private juce::ChangeListener, private juce::ValueTree::Listener
 {
 public:
@@ -76,9 +111,9 @@ private:
 
     AppContext& ctx;
     juce::TextButton fileBtn { "FILE" }, editBtn { "EDIT" }, toolsBtn { "TOOLS" };
-    juce::TextButton playBtn, stopBtn, recBtn;
+    IconButton playBtn { IconButton::play }, stopBtn { IconButton::stop }, recBtn { IconButton::record };
     juce::TextButton patModeBtn { "PAT" }, songModeBtn { "SONG" }, jamModeBtn { "JAM" };
-    juce::TextButton metroBtn { "METRO" };
+    IconButton metroBtn { IconButton::metronome };
     DragNumber tempo { 20, 400, 1, 2 };
     juce::Slider swing { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     juce::ComboBox patternBox;
@@ -86,7 +121,7 @@ private:
     juce::OwnedArray<juce::TextButton> viewBtns;
     juce::String statusText;
     juce::uint32 statusTime = 0;
-    juce::Rectangle<int> timeArea, cpuArea, logoArea, meterArea, statusArea;
+    juce::Rectangle<int> timeArea, cpuArea, logoArea, meterArea, statusArea, transportArea;
     float meterL = 0, meterR = 0;
     bool refreshing = false;
 };

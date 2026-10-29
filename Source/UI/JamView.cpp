@@ -42,16 +42,7 @@ bool JamView::cellAt (juce::Point<int> p, int& t, int& s) const
 void JamView::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("Jam View", head.reduced (10, 0), juce::Justification::centredLeft);
-    g.setColour (col::textDim);
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Drop loops or patterns into slots, click to launch (starts on the next bar). Scenes launch a whole row.",
-                head.withTrimmedLeft (100).withTrimmedRight (330).reduced (6, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36).withTrimmedRight (280), "Jam View", "Drop loops or patterns into slots  -  click to launch on the next bar  -  scenes launch a whole row");
 
     const auto& eng = *ctx.engine;
     const bool blink = (juce::Time::getMillisecondCounter() / 250) % 2 == 0;

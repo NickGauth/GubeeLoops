@@ -8,6 +8,9 @@
 #include "GubeeDSP/GubeeInstruments.h"
 #include "GubeeDSP/GubeeSampler.h"
 #include "GubeeDSP/GubeeDrumPads.h"
+#include "GubeeDSP/GubeeDynamics.h"
+#include "GubeeDSP/GubeeFX.h"
+#include "GubeeDSP/GubeeSynths.h"
 
 namespace gubee
 {
@@ -16,8 +19,25 @@ enum class TransportMode { pattern = 0, song = 1, jam = 2 };
 /** Built-in processors available everywhere in the app. */
 struct BuiltinRegistry
 {
-    static juce::StringArray instruments() { return { "Gubee 808", "Gubee Synth" }; }
-    static juce::StringArray effects() { return { "Gubee EQ", "Gubee Comp", "Gubee Reverb", "Gubee Delay", "Gubee Filter", "Gubee Crush", "Gubee Limiter" }; }
+    static juce::StringArray instruments() { return { "Gubee 808", "Gubee Synth", "Gubee FM", "Gubee Wavetable", "Gubee Super", "Gubee Keys", "Gubee Organ", "Gubee Pluck", "Gubee Drum Synth" }; }
+    static juce::StringArray effects()
+    {
+        return { "Gubee EQ", "Gubee Graphic EQ", "Gubee Comp", "Gubee Multiband", "Gubee Limiter", "Gubee Clipper", "Gubee Gate", "Gubee Transient", "Gubee Pump",
+                 "Gubee Reverb", "Gubee Delay", "Gubee Chorus", "Gubee Flanger", "Gubee Phaser", "Gubee Tremolo", "Gubee Ring",
+                 "Gubee Drive", "Gubee Amp", "Gubee Crush", "Gubee Filter", "Gubee Vocoder", "Gubee Stereo", "Gubee Pitch", "Gubee Tune",
+                 "Gubee Stutter", "Gubee Scope" };
+    }
+    /** Effect categories for menus. */
+    static std::vector<std::pair<juce::String, juce::StringArray>> effectCategories()
+    {
+        return { { "EQ & Filter", { "Gubee EQ", "Gubee Graphic EQ", "Gubee Filter" } },
+                 { "Dynamics", { "Gubee Comp", "Gubee Multiband", "Gubee Limiter", "Gubee Clipper", "Gubee Gate", "Gubee Transient", "Gubee Pump" } },
+                 { "Space", { "Gubee Reverb", "Gubee Delay" } },
+                 { "Modulation", { "Gubee Chorus", "Gubee Flanger", "Gubee Phaser", "Gubee Tremolo", "Gubee Ring" } },
+                 { "Distortion", { "Gubee Drive", "Gubee Amp", "Gubee Crush" } },
+                 { "Pitch & Voice", { "Gubee Pitch", "Gubee Tune", "Gubee Vocoder" } },
+                 { "Creative & Utility", { "Gubee Stutter", "Gubee Stereo", "Gubee Scope" } } };
+    }
     static std::unique_ptr<juce::AudioProcessor> create (const juce::String& name);
 };
 
@@ -79,6 +99,17 @@ struct ChannelRuntime
     int numChannels = 2;
     DrumPadsProcessor* pads = nullptr;
     SamplerProcessor* sampler = nullptr;
+
+    // MIDI tools (arpeggiator / chord / scale lock)
+    std::atomic<int> arpMode { 0 }, arpOct { 1 }, chordType { 0 }, scaleType { 0 }, scaleRoot { 0 };
+    std::atomic<float> arpRate { 0.25f }, arpGate { 0.5f };
+    std::vector<int> held, heldOrder;
+    std::array<std::array<int, 6>, 128> noteMap {};
+    std::array<int, 128> noteMapCount {};
+    int arpStep = 0, arpNote = -1;
+    double arpOffBeat = -1.0;
+    juce::MidiBuffer toolOut;
+    ChannelRuntime() { held.reserve (64); heldOrder.reserve (64); }
 };
 
 struct SlotRuntime
@@ -88,6 +119,7 @@ struct SlotRuntime
     std::unique_ptr<juce::AudioProcessor> proc;
     juce::String error;
     std::atomic<bool> bypass { false };
+    std::atomic<int> sidechain { -1 };
     juce::AudioBuffer<float> buf;
     juce::MidiBuffer emptyMidi;
     int numChannels = 2;
@@ -98,7 +130,7 @@ struct TrackRuntime
     std::atomic<float> vol { 0.8f }, pan { 0.0f };
     std::atomic<bool> mute { false }, solo { false };
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };
-    juce::AudioBuffer<float> buf;
+    juce::AudioBuffer<float> buf, dry;
 };
 
 struct AutoTarget
@@ -108,7 +140,7 @@ struct AutoTarget
     std::shared_ptr<TrackRuntime> track;
     std::shared_ptr<void> keepAlive;
     juce::AudioProcessorParameter* parameter = nullptr;
-    void apply (float v01) const;
+    void apply (float v01, bool notifyHost = false) const;
 };
 
 struct NoteEv { double start, end; int key; float vel; };
@@ -141,6 +173,9 @@ struct Snapshot
     std::array<int, numJamTracks> jamMixer {};
     double songEnd = 0, loopStart = 0, loopEnd = 0;
     bool anySolo = false;
+    bool anySidechain = false;
+    struct CCMap { int cc; AutoTarget target; bool treeTarget; };
+    std::vector<CCMap> midiMap;
 };
 using SnapshotPtr = std::shared_ptr<const Snapshot>;
 
@@ -171,6 +206,12 @@ public:
     std::atomic<int> selectedChannel { -1 };
     std::atomic<int> recordTrack { 0 };
     std::atomic<bool> quantizeRecording { true };
+    std::atomic<bool> countIn { true };
+
+    // MIDI learn: call startLearn(), then poll learnedController() (>= 0 once a knob was moved)
+    void startLearn() { learnedCC = -1; learning = true; }
+    void cancelLearn() { learning = false; }
+    int learnedController() const { return learnedCC.load(); }
 
     // live notes from UI / MIDI
     void sendLiveNote (int note, float velocity);   // velocity 0 = note off
@@ -222,6 +263,7 @@ public:
 private:
     void process (const float* const* in, int numIn, float* const* out, int numOut, int n);
     void scheduleSegment (const Snapshot& s, double b0, double b1, int off, int len, double spb);
+    void applyMidiTools (ChannelRuntime& rt, int n, double beat0, double spb);
     void emitNotes (const Snapshot& s, int chIndex, const std::vector<NoteEv>& notes, double windowStart,
                     double clipStart, double clipEnd, double b0, double b1, int off, int len, double spb);
     void renderAudio (const Snapshot& s, const ProcessedPtr& a, int mixer, double localBeat0, double offsetOut,
@@ -307,5 +349,14 @@ private:
 
     bool exporting = false;
     std::optional<int> stemOnly;
+
+    std::atomic<bool> learning { false };
+    std::atomic<int> learnedCC { -1 };
+    struct CCEvent { int cc; float value; };
+    juce::AbstractFifo ccFifo { 256 };
+    std::array<CCEvent, 256> ccEvents;
+    std::atomic<double> recordFrom { -1.0e9 };
+    double freeClock = 0;
+    double recLoopStart = 0, recLoopEnd = 0;
 };
 }

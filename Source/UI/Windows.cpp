@@ -546,6 +546,162 @@ struct ModulatorsPanel : public juce::Component, private juce::ValueTree::Listen
 };
 }
 
+//==============================================================================
+namespace
+{
+/** Per-channel arpeggiator / chord / scale lock. */
+struct MidiToolsPanel : public juce::Component
+{
+    MidiToolsPanel (AppContext& c, int id) : ctx (c), ch (c.project.findChannel (id))
+    {
+        auto combo = [this] (juce::ComboBox& b, const juce::StringArray& items, const juce::Identifier& prop, int def, int base = 0)
+        {
+            addAndMakeVisible (b);
+            b.addItemList (items, 1);
+            b.setSelectedItemIndex ((int) ch.getProperty (prop, def) - base, juce::dontSendNotification);
+            b.onChange = [this, &b, prop, base] { ctx.project.beginEdit ("MIDI tools"); ch.setProperty (prop, b.getSelectedItemIndex() + base, ctx.project.um()); };
+        };
+        combo (arp, { "Off", "Up", "Down", "Up & Down", "Random", "As Played" }, ids::arp, 0);
+        combo (oct, { "1 octave", "2 octaves", "3 octaves", "4 octaves" }, ids::arpOct, 1, 1);
+        combo (chord, { "Off", "Major", "Minor", "7th", "Major 7th", "Minor 7th", "Sus 4", "Power (5th)", "Octave", "Open Major" }, ids::chord, 0);
+        combo (scale, { "Off", "Major", "Minor", "Harmonic Minor", "Major Pentatonic", "Minor Pentatonic", "Blues", "Dorian" }, ids::scale, 0);
+        combo (root, { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, ids::scaleRoot, 0);
+        addAndMakeVisible (rate);
+        const double rates[] = { 1.0, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125 };
+        rate.addItemList ({ "1/4", "1/8", "1/8 T", "1/16", "1/16 T", "1/32" }, 1);
+        double cur = ch.getProperty (ids::arpRate, 0.25);
+        for (int i = 0; i < 6; ++i) if (std::abs (rates[i] - cur) < 1.0e-4) rate.setSelectedItemIndex (i, juce::dontSendNotification);
+        rate.onChange = [this]
+        {
+            const double r[] = { 1.0, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125 };
+            ctx.project.beginEdit ("Arp rate"); ch.setProperty (ids::arpRate, r[rate.getSelectedItemIndex()], ctx.project.um());
+        };
+        addAndMakeVisible (gate);
+        gate.setSliderStyle (juce::Slider::LinearHorizontal);
+        gate.setRange (0.05, 1.0, 0.01);
+        gate.setValue ((double) ch.getProperty (ids::arpGate, 0.5), juce::dontSendNotification);
+        gate.onValueChange = [this] { ch.setProperty (ids::arpGate, gate.getValue(), nullptr); };
+        setSize (420, 330);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (col::panel);
+        g.setColour (col::text);
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.drawText (ch.getProperty (ids::name).toString() + "  -  MIDI tools", 14, 8, 380, 22, juce::Justification::centredLeft);
+        g.setFont (juce::FontOptions (12.0f));
+        g.setColour (col::textDim);
+        const char* labels[] = { "Arpeggiator", "Arp speed", "Arp range", "Arp note length", "Chord", "Scale lock", "Key" };
+        juce::Component* comps[] = { &arp, &rate, &oct, &gate, &chord, &scale, &root };
+        for (int i = 0; i < 7; ++i) g.drawText (labels[i], 14, comps[i]->getY(), 130, 26, juce::Justification::centredLeft);
+        g.drawFittedText ("Works on notes from the Piano Roll, the step sequencer and your MIDI keyboard. Scale lock snaps wrong notes into the key.",
+                          14, getHeight() - 44, getWidth() - 28, 40, juce::Justification::centredLeft, 2);
+    }
+    void resized() override
+    {
+        int y = 40;
+        for (auto* c : std::initializer_list<juce::Component*> { &arp, &rate, &oct, &gate, &chord, &scale, &root }) { c->setBounds (150, y, 250, 26); y += 34; }
+    }
+    AppContext& ctx;
+    juce::ValueTree ch;
+    juce::ComboBox arp, rate, oct, chord, scale, root;
+    juce::Slider gate;
+};
+
+/** MIDI learn: link hardware knobs to anything. */
+struct MidiLearnPanel : public juce::Component, private juce::Timer, private juce::ListBoxModel
+{
+    explicit MidiLearnPanel (AppContext& c) : ctx (c)
+    {
+        addAndMakeVisible (learn);
+        learn.onClick = [this]
+        {
+            juce::PopupMenu menu;
+            auto list = std::make_shared<std::vector<std::pair<juce::String, juce::String>>>();
+            buildTargetMenu (ctx, menu, *list, 1);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&learn), [this, list] (int r)
+            {
+                if (r <= 0 || r - 1 >= (int) list->size()) return;
+                pending = (*list)[(size_t) r - 1];
+                ctx.engine->startLearn();
+                waiting = true;
+                repaint();
+            });
+        };
+        addAndMakeVisible (remove);
+        remove.onClick = [this]
+        {
+            int row = box.getSelectedRow();
+            auto map = mapNode();
+            if (row >= 0 && row < map.getNumChildren()) { ctx.project.beginEdit ("Remove MIDI link"); map.removeChild (row, ctx.project.um()); box.updateContent(); }
+        };
+        addAndMakeVisible (box);
+        box.setModel (this);
+        box.setRowHeight (24);
+        setSize (520, 420);
+        startTimerHz (15);
+    }
+    ~MidiLearnPanel() override { ctx.engine->cancelLearn(); }
+    juce::ValueTree mapNode()
+    {
+        auto m = ctx.project.root.getChildWithName (ids::MIDIMAP);
+        if (! m.isValid()) { m = juce::ValueTree (ids::MIDIMAP); ctx.project.root.appendChild (m, nullptr); }
+        return m;
+    }
+    void timerCallback() override
+    {
+        if (! waiting) return;
+        const int cc = ctx.engine->learnedController();
+        if (cc < 0) return;
+        waiting = false;
+        juce::ValueTree m (ids::MAP);
+        m.setProperty (ids::cc, cc, nullptr);
+        m.setProperty (ids::target, pending.first, nullptr);
+        m.setProperty (ids::name, pending.second, nullptr);
+        ctx.project.beginEdit ("MIDI learn");
+        mapNode().appendChild (m, ctx.project.um());
+        ctx.status ("Linked controller CC " + juce::String (cc) + " to " + pending.second);
+        box.updateContent();
+        repaint();
+    }
+    int getNumRows() override { return mapNode().getNumChildren(); }
+    void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool sel) override
+    {
+        auto m = mapNode().getChild (row);
+        if (sel) { g.setColour (col::accent.withAlpha (0.2f)); g.fillRect (0, 0, w, h); }
+        g.setColour (col::accent);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("CC " + m.getProperty (ids::cc).toString(), 8, 0, 70, h, juce::Justification::centredLeft);
+        g.setColour (col::text);
+        g.setFont (juce::FontOptions (13.0f));
+        g.drawText (m.getProperty (ids::name).toString(), 80, 0, w - 90, h, juce::Justification::centredLeft);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (col::panel);
+        g.setColour (waiting ? col::accent2 : col::textDim);
+        g.setFont (juce::FontOptions (13.0f, waiting ? juce::Font::bold : juce::Font::plain));
+        g.drawFittedText (waiting ? "Now move a knob / fader on your MIDI controller to link it to: " + pending.second
+                                  : "Pick something to control, then move a knob on your MIDI controller. Links are saved with the song.",
+                          12, 46, getWidth() - 24, 36, juce::Justification::centredLeft, 2);
+    }
+    void resized() override
+    {
+        learn.setBounds (12, 10, 200, 28);
+        remove.setBounds (220, 10, 140, 28);
+        box.setBounds (12, 90, getWidth() - 24, getHeight() - 102);
+    }
+    AppContext& ctx;
+    juce::TextButton learn { "+ Learn a new knob..." }, remove { "Remove selected" };
+    juce::ListBox box;
+    std::pair<juce::String, juce::String> pending;
+    bool waiting = false;
+};
+}
+
+std::unique_ptr<juce::Component> makeMidiToolsPanel (AppContext& ctx, int id) { return std::make_unique<MidiToolsPanel> (ctx, id); }
+std::unique_ptr<juce::Component> makeMidiLearnPanel (AppContext& ctx) { return std::make_unique<MidiLearnPanel> (ctx); }
+
 std::unique_ptr<juce::Component> makeDrumPadsEditor (AppContext& ctx, int id) { return std::make_unique<PadsEditor> (ctx, id); }
 std::unique_ptr<juce::Component> makePluginManager (AppContext& ctx) { return std::make_unique<PluginManagerComp> (ctx); }
 std::unique_ptr<juce::Component> makeExportPanel (AppContext& ctx, std::function<void()> done) { return std::make_unique<ExportPanel> (ctx, std::move (done)); }

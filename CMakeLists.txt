@@ -79,8 +79,12 @@ if(GUBEE_BUILD_APP)
 endif()
 
 # ---------------------------------------------------------------- Gubee plugin pack
+set(GUBEE_PLUGIN_GROUP 0 CACHE STRING "Build only plugin group N (1-4), 0 = all")
 if(GUBEE_BUILD_PLUGINS)
-    function(gubee_plugin target name code klass is_synth category)
+    function(gubee_plugin group target name code klass is_synth category midi)
+        if(NOT GUBEE_PLUGIN_GROUP EQUAL 0 AND NOT GUBEE_PLUGIN_GROUP EQUAL ${group})
+            return()
+        endif()
         juce_add_plugin(${target}
             COMPANY_NAME "Gubee"
             PLUGIN_MANUFACTURER_CODE Gube
@@ -88,7 +92,7 @@ if(GUBEE_BUILD_PLUGINS)
             FORMATS VST3
             PRODUCT_NAME "${name}"
             IS_SYNTH ${is_synth}
-            NEEDS_MIDI_INPUT ${is_synth}
+            NEEDS_MIDI_INPUT ${midi}
             NEEDS_MIDI_OUTPUT FALSE
             VST3_CATEGORIES ${category}
             COPY_PLUGIN_AFTER_BUILD FALSE)
@@ -100,13 +104,40 @@ if(GUBEE_BUILD_PLUGINS)
             PUBLIC juce::juce_recommended_config_flags)
     endfunction()
 
-    gubee_plugin(GubeeEQ       "Gubee EQ"       GbEq gubee::EQProcessor        FALSE Fx)
-    gubee_plugin(GubeeComp     "Gubee Comp"     GbCp gubee::CompProcessor      FALSE Dynamics)
-    gubee_plugin(GubeeReverb   "Gubee Reverb"   GbRv gubee::ReverbProcessor    FALSE Reverb)
-    gubee_plugin(GubeeDelay    "Gubee Delay"    GbDl gubee::DelayProcessor     FALSE Delay)
-    gubee_plugin(GubeeFilter   "Gubee Filter"   GbFl gubee::FilterProcessor    FALSE Filter)
-    gubee_plugin(GubeeCrush    "Gubee Crush"    GbCr gubee::CrushProcessor     FALSE Distortion)
-    gubee_plugin(GubeeLimiter  "Gubee Limiter"  GbLm gubee::LimiterProcessor   FALSE Dynamics)
-    gubee_plugin(Gubee808      "Gubee 808"      Gb88 gubee::Bass808Processor   TRUE  Instrument)
-    gubee_plugin(GubeeSynth    "Gubee Synth"    GbSy gubee::SynthProcessor     TRUE  Instrument)
+    # group  target            name                code  class                        synth  category    midi
+    gubee_plugin(1 GubeeEQ          "Gubee EQ"          GbEq gubee::EQProcessor           FALSE Fx         FALSE)
+    gubee_plugin(1 GubeeGraphicEQ   "Gubee Graphic EQ"  GbGq gubee::GraphicEQProcessor    FALSE Fx         FALSE)
+    gubee_plugin(1 GubeeComp        "Gubee Comp"        GbCp gubee::CompProcessor         FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeeMultiband   "Gubee Multiband"   GbMb gubee::MultibandProcessor    FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeeLimiter     "Gubee Limiter"     GbLm gubee::LimiterProcessor      FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeeClipper     "Gubee Clipper"     GbCl gubee::ClipperProcessor      FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeeGate        "Gubee Gate"        GbGt gubee::GateProcessor         FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeeTransient   "Gubee Transient"   GbTr gubee::TransientProcessor    FALSE Dynamics   FALSE)
+    gubee_plugin(1 GubeePump        "Gubee Pump"        GbPm gubee::PumpProcessor         FALSE Dynamics   FALSE)
+    gubee_plugin(2 GubeeReverb      "Gubee Reverb"      GbRv gubee::ReverbProcessor       FALSE Reverb     FALSE)
+    gubee_plugin(2 GubeeDelay       "Gubee Delay"       GbDl gubee::DelayProcessor        FALSE Delay      FALSE)
+    gubee_plugin(2 GubeeChorus      "Gubee Chorus"      GbCh gubee::ChorusProcessor       FALSE Modulation FALSE)
+    gubee_plugin(2 GubeeFlanger     "Gubee Flanger"     GbFg gubee::FlangerProcessor      FALSE Modulation FALSE)
+    gubee_plugin(2 GubeePhaser      "Gubee Phaser"      GbPh gubee::PhaserProcessor       FALSE Modulation FALSE)
+    gubee_plugin(2 GubeeTremolo     "Gubee Tremolo"     GbTm gubee::TremoloProcessor      FALSE Modulation FALSE)
+    gubee_plugin(2 GubeeRing        "Gubee Ring"        GbRg gubee::RingProcessor         FALSE Modulation FALSE)
+    gubee_plugin(2 GubeeFilter      "Gubee Filter"      GbFl gubee::FilterProcessor       FALSE Filter     FALSE)
+    gubee_plugin(2 GubeeCrush       "Gubee Crush"       GbCr gubee::CrushProcessor        FALSE Distortion FALSE)
+    gubee_plugin(3 GubeeDrive       "Gubee Drive"       GbDr gubee::DriveProcessor        FALSE Distortion FALSE)
+    gubee_plugin(3 GubeeAmp         "Gubee Amp"         GbAm gubee::AmpProcessor          FALSE Distortion FALSE)
+    gubee_plugin(3 GubeeVocoder     "Gubee Vocoder"     GbVc gubee::VocoderProcessor      FALSE Fx         TRUE)
+    gubee_plugin(3 GubeeStereo      "Gubee Stereo"      GbSt gubee::StereoProcessor       FALSE Spatial    FALSE)
+    gubee_plugin(3 GubeePitch       "Gubee Pitch"       GbPt gubee::PitchProcessor        FALSE "Pitch Shift" FALSE)
+    gubee_plugin(3 GubeeTune        "Gubee Tune"        GbTn gubee::TuneProcessor         FALSE "Pitch Shift" FALSE)
+    gubee_plugin(3 GubeeStutter     "Gubee Stutter"     GbSu gubee::StutterProcessor      FALSE Fx         FALSE)
+    gubee_plugin(3 GubeeScope       "Gubee Scope"       GbSc gubee::ScopeProcessor        FALSE Analyzer   FALSE)
+    gubee_plugin(4 Gubee808         "Gubee 808"         Gb88 gubee::Bass808Processor      TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeSynth       "Gubee Synth"       GbSy gubee::SynthProcessor        TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeFM          "Gubee FM"          GbFm gubee::FMProcessor           TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeWavetable   "Gubee Wavetable"   GbWt gubee::WavetableProcessor    TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeSuper       "Gubee Super"       GbSp gubee::SuperProcessor        TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeKeys        "Gubee Keys"        GbKy gubee::KeysProcessor         TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeOrgan       "Gubee Organ"       GbOr gubee::OrganProcessor        TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeePluck       "Gubee Pluck"       GbPk gubee::PluckProcessor        TRUE  Instrument TRUE)
+    gubee_plugin(4 GubeeDrumSynth   "Gubee Drum Synth"  GbDs gubee::DrumSynthProcessor    TRUE  Instrument TRUE)
 endif()

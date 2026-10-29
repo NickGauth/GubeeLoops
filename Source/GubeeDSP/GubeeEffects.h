@@ -8,6 +8,13 @@ class EQProcessor : public GubeeProcessor
 {
 public:
     EQProcessor() : GubeeProcessor ("Gubee EQ", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Flat", {} }, { "Clean Low End", { { "lowcut", 35 }, { "midfreq", 300 }, { "midgain", -3 } } },
+                 { "Bright Vocal", { { "lowcut", 100 }, { "midfreq", 3000 }, { "midgain", 3 }, { "highgain", 4 } } },
+                 { "Kick Thump", { { "lowgain", 5 }, { "midfreq", 400 }, { "midgain", -5 }, { "midq", 2 } } },
+                 { "Lo-fi", { { "lowcut", 200 }, { "highcut", 4000 } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {
@@ -62,62 +69,15 @@ private:
 };
 
 //==============================================================================
-class CompProcessor : public GubeeProcessor
-{
-public:
-    CompProcessor() : GubeeProcessor ("Gubee Comp", false, layout()) {}
-
-    static APVTS::ParameterLayout layout()
-    {
-        APVTS::ParameterLayout l;
-        l.add (fparam ("threshold", "Threshold", -60, 0, -18, -1, "dB"));
-        l.add (fparam ("ratio", "Ratio", 1, 20, 4, 4));
-        l.add (fparam ("attack", "Attack", 0.1f, 100, 10, 10, "ms"));
-        l.add (fparam ("release", "Release", 10, 1000, 120, 150, "ms"));
-        l.add (fparam ("makeup", "Makeup", 0, 24, 0, -1, "dB"));
-        l.add (fparam ("mix", "Mix", 0, 1, 1));
-        return l;
-    }
-
-    void prepareToPlay (double s, int bs) override
-    {
-        sr = s;
-        comp.prepare ({ s, (juce::uint32) bs, 2 });
-        dry.setSize (2, bs);
-    }
-
-    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
-    {
-        juce::ScopedNoDenormals nd;
-        comp.setThreshold (p ("threshold"));
-        comp.setRatio (p ("ratio"));
-        comp.setAttack (p ("attack"));
-        comp.setRelease (p ("release"));
-        const float mix = p ("mix");
-        const int n = b.getNumSamples(), nc = juce::jmin (2, b.getNumChannels());
-        if (dry.getNumSamples() < n) dry.setSize (2, n, false, false, true);
-        for (int c = 0; c < nc; ++c) dry.copyFrom (c, 0, b, c, 0, n);
-        juce::dsp::AudioBlock<float> blk (b);
-        auto sub = blk.getSubsetChannelBlock (0, (size_t) nc);
-        comp.process (juce::dsp::ProcessContextReplacing<float> (sub));
-        const float mk = juce::Decibels::decibelsToGain (p ("makeup"));
-        for (int c = 0; c < nc; ++c)
-        {
-            b.applyGain (c, 0, n, mk * mix);
-            b.addFrom (c, 0, dry, c, 0, n, 1.0f - mix);
-        }
-    }
-
-private:
-    juce::dsp::Compressor<float> comp;
-    juce::AudioBuffer<float> dry;
-};
-
-//==============================================================================
 class ReverbProcessor : public GubeeProcessor
 {
 public:
     ReverbProcessor() : GubeeProcessor ("Gubee Reverb", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Room", { { "size", 0.35f }, { "mix", 0.2f } } }, { "Hall", { { "size", 0.8f }, { "mix", 0.3f } } },
+                 { "Huge Space", { { "size", 0.97f }, { "damping", 0.3f }, { "mix", 0.45f } } }, { "Vocal Plate", { { "size", 0.6f }, { "damping", 0.2f }, { "lowcut", 300 }, { "mix", 0.25f } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {
@@ -177,6 +137,12 @@ class DelayProcessor : public GubeeProcessor
 {
 public:
     DelayProcessor() : GubeeProcessor ("Gubee Delay", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Dotted 8th", {} }, { "Ping-Pong 1/4", { { "division", 4 }, { "pingpong", 1 }, { "feedback", 0.45f } } },
+                 { "Slapback", { { "sync", 0 }, { "time", 110 }, { "feedback", 0.1f }, { "mix", 0.35f } } },
+                 { "Dub Echo", { { "division", 4 }, { "feedback", 0.75f }, { "tone", 2000 }, { "mix", 0.4f } } } };
+    }
 
     static juce::StringArray divisions() { return { "1/16", "1/8 T", "1/8", "1/8 D", "1/4", "1/4 D", "1/2", "1 Bar" }; }
     static double divisionBeats (int i) { const double v[] = { 0.25, 1.0 / 3.0, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0 }; return v[juce::jlimit (0, 7, i)]; }
@@ -245,6 +211,11 @@ class FilterProcessor : public GubeeProcessor
 {
 public:
     FilterProcessor() : GubeeProcessor ("Gubee Filter", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Low Pass Warm", { { "cutoff", 1500 } } }, { "Wobble (LFO)", { { "cutoff", 600 }, { "reso", 4 }, { "lforate", 3 }, { "lfodepth", 0.6f } } },
+                 { "Telephone Band", { { "mode", 2 }, { "cutoff", 1500 }, { "reso", 2 } } }, { "High Pass Riser", { { "mode", 1 }, { "cutoff", 400 } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {
@@ -307,6 +278,11 @@ class CrushProcessor : public GubeeProcessor
 {
 public:
     CrushProcessor() : GubeeProcessor ("Gubee Crush", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "8-bit", { { "bits", 8 }, { "downsample", 4 } } }, { "Lo-fi Dust", { { "bits", 12 }, { "downsample", 2 }, { "mix", 0.5f } } },
+                 { "Destroyed", { { "bits", 3 }, { "downsample", 16 }, { "drive", 12 } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {
@@ -355,6 +331,10 @@ class LimiterProcessor : public GubeeProcessor
 {
 public:
     LimiterProcessor() : GubeeProcessor ("Gubee Limiter", false, layout()) {}
+    std::vector<Preset> factoryPresets() const override
+    {
+        return { { "Safe Master", {} }, { "Loud Master", { { "gain", 6 } } }, { "Very Loud", { { "gain", 10 }, { "release", 40 } } } };
+    }
 
     static APVTS::ParameterLayout layout()
     {

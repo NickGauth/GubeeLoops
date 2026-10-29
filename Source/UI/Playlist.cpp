@@ -72,6 +72,9 @@ struct Playlist::Lane : public juce::Component
         auto& pr = pl.ctx.project;
         const auto kind = c.getProperty (ids::kind).toString();
         const bool selected = pl.selection.contains (c);
+        const bool clipMuted = (bool) c.getProperty (ids::mute, false);
+        juce::Graphics::ScopedSaveState clipState (g);
+        if (clipMuted) g.setOpacity (0.35f);
         juce::Colour colour;
         juce::String title;
         if (kind == "pattern")
@@ -563,16 +566,7 @@ void Playlist::timerCallback()
 void Playlist::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("Playlist", head.reduced (10, 0), juce::Justification::centredLeft);
-    g.setColour (col::textDim);
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Right-click for options. Drag sounds here from the browser. Drag on the ruler to set a loop.",
-                head.withTrimmedLeft (90).reduced (6, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36).withTrimmedRight (420), "Playlist", "Right-click for options  -  drag sounds in from the browser  -  drag on the ruler to loop");
 }
 
 void Playlist::resized()
@@ -779,6 +773,7 @@ void Playlist::clipMenu (juce::ValueTree c)
         m.addItem (53, "Reset to flat");
     }
     m.addSeparator();
+    m.addItem (63, "Mute clip", true, (bool) c.getProperty (ids::mute, false));
     m.addItem (60, "Split at playhead");
     m.addItem (61, "Duplicate (Ctrl+D)");
     m.addItem (62, "Delete");
@@ -863,6 +858,7 @@ void Playlist::clipMenu (juce::ValueTree c)
         else if (r == 60) splitClip (c, ctx.engine->getBeat());
         else if (r == 61) { selection.clear(); selection.add (c); keyPressed (juce::KeyPress ('d', juce::ModifierKeys::ctrlModifier, 0)); }
         else if (r == 62) { p.playlist().removeChild (c, p.um()); selection.removeAllInstancesOf (c); }
+        else if (r == 63) c.setProperty (ids::mute, ! (bool) c.getProperty (ids::mute, false), p.um());
     });
 }
 

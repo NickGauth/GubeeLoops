@@ -73,6 +73,8 @@ struct MixerView::Strip : public juce::Component
                     label = d.name;
                 }
                 bool bypass = (bool) s.getProperty (ids::bypass, false);
+                const int scSrc = (int) s.getProperty (ids::sc, -1);
+                if (scSrc >= 0) label << "  [SC " << scSrc << "]";
                 b->setButtonText (label);
                 b->setColour (juce::TextButton::buttonColourId, bypass ? col::panel : col::accent.withAlpha (0.35f));
                 b->setColour (juce::TextButton::textColourOffId, bypass ? col::textDim : col::text);
@@ -119,6 +121,12 @@ struct MixerView::Strip : public juce::Component
             m.addItem (3, "Replace...");
             m.addItem (4, "Move up", i > 0);
             m.addItem (5, "Move down", i < numFxSlots - 1);
+            juce::PopupMenu scm;
+            const int curSc = (int) s.getProperty (ids::sc, -1);
+            scm.addItem (2000, "None", true, curSc < 0);
+            for (int t = 0; t < numMixerTracks; ++t)
+                if (t != index) scm.addItem (2001 + t, juce::String (t) + "  " + ctx.project.mixerTrack (t).getProperty (ids::name).toString(), true, curSc == t);
+            m.addSubMenu ("Sidechain input from", scm);
             m.addItem (6, "Remove");
             m.showMenuAsync ({}, [this, i, s] (int r) mutable
             {
@@ -136,6 +144,12 @@ struct MixerView::Strip : public juce::Component
                     if (other.isValid()) other.setProperty (ids::index, i, pr.um());
                 }
                 else if (r == 6) { pr.beginEdit ("Remove effect"); pr.clearSlot (index, i); }
+                else if (r >= 2000)
+                {
+                    pr.beginEdit ("Sidechain");
+                    s.setProperty (ids::sc, r == 2000 ? -1 : r - 2001, pr.um());
+                    if (r > 2000) c.status ("Sidechain set. In Gubee Comp / Gate turn on 'Use sidechain'; Gubee Pump: set Trigger to Sidechain.");
+                }
             });
             return;
         }
@@ -274,16 +288,7 @@ void MixerView::timerCallback()
 void MixerView::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("Mixer", head.reduced (10, 0), juce::Justification::centredLeft);
-    g.setColour (col::textDim);
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Click an empty slot to add an effect (Gubee or your plugins). Right-click a slot for bypass / move / remove.",
-                head.withTrimmedLeft (80).reduced (6, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36), "Mixer", "Click an empty slot to add an effect  -  right-click a slot for bypass, sidechain, move or remove");
 }
 
 void MixerView::resized()

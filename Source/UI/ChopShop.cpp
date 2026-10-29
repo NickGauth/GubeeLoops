@@ -469,16 +469,7 @@ void ChopShop::itemDropped (const SourceDetails& d)
 void ChopShop::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("Chop Shop", head.reduced (10, 0), juce::Justification::centredLeft);
-    g.setColour (col::textDim);
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Drag to select, double-click to add a chop, drag chop markers to move, right-click to remove. Keys 1-9 play chops.",
-                head.withTrimmedLeft (110).withTrimmedRight (100).reduced (6, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36).withTrimmedRight (100), "Chop Shop", "Drag to select  -  double-click adds a chop  -  drag markers to move  -  right-click removes  -  keys 1-9 play chops");
     if (lazyChop)
     {
         g.setColour (col::accent2);

@@ -15,6 +15,32 @@ std::unique_ptr<juce::AudioProcessor> BuiltinRegistry::create (const juce::Strin
     if (n == "Gubee Filter")  return std::make_unique<FilterProcessor>();
     if (n == "Gubee Crush")   return std::make_unique<CrushProcessor>();
     if (n == "Gubee Limiter") return std::make_unique<LimiterProcessor>();
+    if (n == "Gubee Graphic EQ") return std::make_unique<GraphicEQProcessor>();
+    if (n == "Gubee Multiband") return std::make_unique<MultibandProcessor>();
+    if (n == "Gubee Clipper") return std::make_unique<ClipperProcessor>();
+    if (n == "Gubee Gate") return std::make_unique<GateProcessor>();
+    if (n == "Gubee Transient") return std::make_unique<TransientProcessor>();
+    if (n == "Gubee Pump") return std::make_unique<PumpProcessor>();
+    if (n == "Gubee Chorus") return std::make_unique<ChorusProcessor>();
+    if (n == "Gubee Flanger") return std::make_unique<FlangerProcessor>();
+    if (n == "Gubee Phaser") return std::make_unique<PhaserProcessor>();
+    if (n == "Gubee Tremolo") return std::make_unique<TremoloProcessor>();
+    if (n == "Gubee Ring") return std::make_unique<RingProcessor>();
+    if (n == "Gubee Drive") return std::make_unique<DriveProcessor>();
+    if (n == "Gubee Amp") return std::make_unique<AmpProcessor>();
+    if (n == "Gubee Vocoder") return std::make_unique<VocoderProcessor>();
+    if (n == "Gubee Stereo") return std::make_unique<StereoProcessor>();
+    if (n == "Gubee Pitch") return std::make_unique<PitchProcessor>();
+    if (n == "Gubee Tune") return std::make_unique<TuneProcessor>();
+    if (n == "Gubee Stutter") return std::make_unique<StutterProcessor>();
+    if (n == "Gubee Scope") return std::make_unique<ScopeProcessor>();
+    if (n == "Gubee FM") return std::make_unique<FMProcessor>();
+    if (n == "Gubee Wavetable") return std::make_unique<WavetableProcessor>();
+    if (n == "Gubee Super") return std::make_unique<SuperProcessor>();
+    if (n == "Gubee Keys") return std::make_unique<KeysProcessor>();
+    if (n == "Gubee Organ") return std::make_unique<OrganProcessor>();
+    if (n == "Gubee Pluck") return std::make_unique<PluckProcessor>();
+    if (n == "Gubee Drum Synth") return std::make_unique<DrumSynthProcessor>();
     if (n == "Gubee Sampler") return std::make_unique<SamplerProcessor>();
     if (n == "Gubee Drum Pads") return std::make_unique<DrumPadsProcessor>();
     return nullptr;
@@ -104,7 +130,7 @@ void ClipAudioCache::clear()
 }
 
 //==============================================================================
-void AutoTarget::apply (float v) const
+void AutoTarget::apply (float v, bool notifyHost) const
 {
     v = juce::jlimit (0.0f, 1.0f, v);
     switch (type)
@@ -113,7 +139,7 @@ void AutoTarget::apply (float v) const
         case chPan: if (ch) ch->pan = v * 2.0f - 1.0f; break;
         case mxVol: if (track) track->vol = v * 1.25f; break;
         case mxPan: if (track) track->pan = v * 2.0f - 1.0f; break;
-        case param: if (parameter) parameter->setValue (v); break;
+        case param: if (parameter) { if (notifyHost) parameter->setValueNotifyingHost (v); else parameter->setValue (v); } break;
         default: break;
     }
 }
@@ -156,6 +182,16 @@ Engine::~Engine()
 void Engine::play()
 {
     if (playing) return;
+    recordFrom = -1.0e9;
+    if (recordArmed && getMode() != TransportMode::jam)
+    {
+        double start = seekRequest.load() >= 0 ? seekRequest.load() : position.load();
+        if (getMode() == TransportMode::pattern) start = 0.0;
+        start = juce::jmax (0.0, std::floor (start / 4.0 + 1.0e-9) * 4.0);
+        recordFrom = start;
+        if (countIn) seekRequest = start - 4.0;
+        else seekRequest = start;
+    }
     if (getMode() == TransportMode::song && recordArmed) startAudioRecording();
     if (getMode() == TransportMode::jam) jamPendingStart = true;
     jamLog.clear();
@@ -502,6 +538,13 @@ void Engine::sync()
         if (! live || ! automated.count (base + "vol")) rt->vol = (float) c.getProperty (ids::vol, 0.78f);
         if (! live || ! automated.count (base + "pan")) rt->pan = (float) c.getProperty (ids::pan, 0.0f);
         rt->mute = (bool) c.getProperty (ids::mute, false);
+        rt->arpMode = (int) c.getProperty (ids::arp, 0);
+        rt->arpRate = (float) c.getProperty (ids::arpRate, 0.25f);
+        rt->arpOct = juce::jlimit (1, 4, (int) c.getProperty (ids::arpOct, 1));
+        rt->arpGate = (float) c.getProperty (ids::arpGate, 0.5f);
+        rt->chordType = (int) c.getProperty (ids::chord, 0);
+        rt->scaleType = (int) c.getProperty (ids::scale, 0);
+        rt->scaleRoot = (int) c.getProperty (ids::scaleRoot, 0);
         applySamplerSettings (*rt, c);
         chIndex[id] = (int) s->channels.size();
         s->channels.push_back ({ id, juce::jlimit (0, numMixerTracks - 1, (int) c.getProperty (ids::mixer, 0)), rt });
@@ -534,6 +577,8 @@ void Engine::sync()
             auto& rt = slotRts[id];
             if (rt == nullptr || rt->key != key) rt = makeSlot (sn);
             rt->bypass = (bool) sn.getProperty (ids::bypass, false);
+            rt->sidechain = (int) sn.getProperty (ids::sc, -1);
+            if (rt->sidechain >= 0) s->anySidechain = true;
             tr.slots.push_back (rt);
         }
         s->tracks.push_back (std::move (tr));
@@ -570,6 +615,7 @@ void Engine::sync()
         clip.track = (int) c.getProperty (ids::track);
         auto trackNode = pl.getChild (clip.track);
         if (trackNode.isValid() && (bool) trackNode.getProperty (ids::mute, false)) continue;
+        if ((bool) c.getProperty (ids::mute, false)) continue;
         clip.start = c.getProperty (ids::start);
         clip.len = juce::jmax (0.01, (double) c.getProperty (ids::len));
         clip.offset = c.getProperty (ids::offset, 0.0);
@@ -614,6 +660,15 @@ void Engine::sync()
                             juce::jmax (0.0625, (double) m.getProperty (ids::rate, 1.0)), (float) m.getProperty (ids::depth, 0.3f),
                             (float) m.getProperty (ids::base, 0.5f) };
         if (mod.target.type != AutoTarget::none) s->mods.push_back (mod);
+    }
+
+    // MIDI learn map
+    for (auto m : project.root.getChildWithName (ids::MIDIMAP))
+    {
+        auto target = m.getProperty (ids::target).toString();
+        auto t = resolveTarget (target);
+        if (t.type != AutoTarget::none)
+            s->midiMap.push_back ({ (int) m.getProperty (ids::cc), t, t.type != AutoTarget::param });
     }
 
     // jam
@@ -690,6 +745,31 @@ void Engine::timerCallback()
             noteFifo.finishedRead (n1 + n2);
         }
     }
+    // MIDI-learned knobs that live in the project (volume / pan) -> update the tree so the UI follows
+    {
+        int s1, n1, s2, n2;
+        const int ready = ccFifo.getNumReady();
+        if (ready > 0)
+        {
+            ccFifo.prepareToRead (ready, s1, n1, s2, n2);
+            auto handle = [this] (const CCEvent& e)
+            {
+                for (auto m : project.root.getChildWithName (ids::MIDIMAP))
+                {
+                    if ((int) m.getProperty (ids::cc) != e.cc) continue;
+                    auto tok = juce::StringArray::fromTokens (m.getProperty (ids::target).toString(), ":", {});
+                    if (tok.size() < 3) continue;
+                    juce::ValueTree node = tok[0] == "ch" ? project.findChannel (tok[1].getIntValue()) : project.mixerTrack (tok[1].getIntValue());
+                    if (! node.isValid()) continue;
+                    if (tok[2] == "vol") node.setProperty (ids::vol, tok[0] == "ch" ? e.value : e.value * 1.25f, nullptr);
+                    else if (tok[2] == "pan") node.setProperty (ids::pan, e.value * 2.0f - 1.0f, nullptr);
+                }
+            };
+            for (int i = 0; i < n1; ++i) handle (ccEvents[(size_t) (s1 + i)]);
+            for (int i = 0; i < n2; ++i) handle (ccEvents[(size_t) (s2 + i)]);
+            ccFifo.finishedRead (n1 + n2);
+        }
+    }
     // jam launches
     {
         int s1, n1, s2, n2;
@@ -718,7 +798,9 @@ void Engine::startAudioRecording()
         const juce::ScopedLock sl (writerLock);
         recWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (w.release(), recThread, 32768);
     }
-    recStartBeat = position.load();
+    recStartBeat = recordFrom.load() > -1.0e8 ? recordFrom.load() : position.load();
+    recLoopStart = project.root.getProperty (ids::loopStart, 0.0);
+    recLoopEnd = project.root.getProperty (ids::loopEnd, 0.0);
     recActive = true;
     if (onStatus) onStatus ("Recording audio...");
 }
@@ -736,8 +818,36 @@ void Engine::finishAudioRecording()
         if (data->lengthSeconds() > 0.05)
         {
             project.beginEdit ("Record audio");
-            project.addAudioClip (recordTrack.load(), recStartBeat, recFile, data->lengthSeconds(), 0.0);
-            if (onStatus) onStatus ("Recorded " + recFile.getFileName());
+            const double secPerBeat = 60.0 / project.tempo();
+            const double totalBeats = data->lengthSeconds() / secPerBeat;
+            const bool looped = recLoopEnd > recLoopStart + 0.01 && recStartBeat < recLoopEnd && totalBeats > (recLoopEnd - recStartBeat) + 0.25;
+            if (! looped)
+            {
+                project.addAudioClip (recordTrack.load(), recStartBeat, recFile, data->lengthSeconds(), 0.0);
+                if (onStatus) onStatus ("Recorded " + recFile.getFileName());
+            }
+            else
+            {
+                // loop recording: one clip per pass ("take"), each on its own track; older takes are muted
+                std::vector<juce::ValueTree> takes;
+                double offsetBeats = 0, start = recStartBeat;
+                int k = 0;
+                while (offsetBeats < totalBeats - 0.25 && k < 16)
+                {
+                    const double len = juce::jmin (recLoopEnd - start, totalBeats - offsetBeats);
+                    const int track = juce::jmin (numPlaylistTracks - 1, recordTrack.load() + k);
+                    auto c = project.addAudioClip (track, start, recFile, data->lengthSeconds(), 0.0);
+                    c.setProperty (ids::len, len, nullptr);
+                    c.setProperty (ids::offset, offsetBeats * secPerBeat, nullptr);
+                    c.setProperty (ids::name, "Take " + juce::String (k + 1), nullptr);
+                    takes.push_back (c);
+                    offsetBeats += len;
+                    start = recLoopStart;
+                    ++k;
+                }
+                for (size_t i = 0; i + 1 < takes.size(); ++i) takes[i].setProperty (ids::mute, true, nullptr);
+                if (onStatus) onStatus ("Recorded " + juce::String ((int) takes.size()) + " takes - the last one is playing; right-click a take to unmute it");
+            }
         }
     }
 }
@@ -840,7 +950,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     for (size_t i = 0; i < s.channels.size(); ++i) if (s.channels[i].id == selId) sel = (int) i;
     const bool isPlaying = playing.load();
     const double pos0 = position.load();
-    const bool recordingNotes = isPlaying && recordArmed.load() && getMode() == TransportMode::pattern && sel >= 0;
+    const bool recordingNotes = isPlaying && recordArmed.load() && getMode() == TransportMode::pattern && sel >= 0 && pos0 >= recordFrom.load() - 1.0e-6;
     const int curPat = currentPattern.load();
 
     auto pushRecNote = [&] (double start, double len, int key, float vel)
@@ -858,6 +968,26 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     {
         auto m = meta.getMessage();
         const double beatNow = pos0 + meta.samplePosition / spb;
+        if (m.isController())
+        {
+            const int cc = m.getControllerNumber();
+            if (learning.load()) { learnedCC = cc; learning = false; continue; }
+            bool mapped = false;
+            for (auto& mm : s.midiMap)
+                if (mm.cc == cc)
+                {
+                    const float v = m.getControllerValue() / 127.0f;
+                    mm.target.apply (v, true);
+                    mapped = true;
+                    if (mm.treeTarget)
+                    {
+                        int s1, n1, s2, n2;
+                        ccFifo.prepareToWrite (1, s1, n1, s2, n2);
+                        if (n1 + n2 > 0) { ccEvents[(size_t) (n1 > 0 ? s1 : s2)] = { cc, v }; ccFifo.finishedWrite (1); }
+                    }
+                }
+            if (mapped) continue;
+        }
         if (m.isNoteOn())
         {
             heldVel[(size_t) m.getNoteNumber()] = m.getFloatVelocity();
@@ -987,6 +1117,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         position = pos;
     }
     sampleCounter += n;
+    if (! isPlaying) freeClock += n / spb; else freeClock = position.load();
 
     // ---- instruments
     for (auto& ch : s.channels)
@@ -994,6 +1125,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         auto& rt = *ch.rt;
         if (rt.proc == nullptr) continue;
         rt.midi.addEvents (rt.midiOns, 0, -1, 0);
+        applyMidiTools (rt, n, isPlaying ? pos0 : freeClock, spb);
         const float v = rt.vol.load(), pan = rt.pan.load();
         const float g = v * v * 1.6f;
         const float gl = g * juce::jmin (1.0f, 1.0f - pan), gr = g * juce::jmin (1.0f, 1.0f + pan);
@@ -1028,6 +1160,13 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
 
     // ---- mixer
     if (stemOnly.has_value() && *stemOnly > 0) s.tracks[0].rt->buf.clear();   // stems exclude sounds routed straight to master
+    if (s.anySidechain)
+        for (auto& t : s.tracks)
+        {
+            if (t.rt->dry.getNumSamples() < n) t.rt->dry.setSize (2, n, false, false, true);
+            t.rt->dry.copyFrom (0, 0, t.rt->buf, 0, 0, n);
+            t.rt->dry.copyFrom (1, 0, t.rt->buf, 1, 0, n);
+        }
     auto runTrack = [&] (int i)
     {
         auto& tr = s.tracks[(size_t) i];
@@ -1040,6 +1179,12 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             view.clear();
             view.copyFrom (0, 0, tb, 0, 0, n);
             view.copyFrom (1, 0, tb, 1, 0, n);
+            const int scSrc = slot->sidechain.load();
+            if (scSrc >= 0 && scSrc < (int) s.tracks.size() && slot->numChannels >= 4)
+            {
+                view.copyFrom (2, 0, s.tracks[(size_t) scSrc].rt->dry, 0, 0, n);
+                view.copyFrom (3, 0, s.tracks[(size_t) scSrc].rt->dry, 1, 0, n);
+            }
             slot->emptyMidi.clear();
             slot->proc->processBlock (view, slot->emptyMidi);
             tb.copyFrom (0, 0, view, 0, 0, n);
@@ -1081,7 +1226,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     if (exporting) return;
 
     // ---- metronome
-    if (metronome.load())
+    if (metronome.load() || (isPlaying && pos0 < recordFrom.load()))
     {
         for (int k = 0; k < numClicks; ++k) { metroSamplesLeft = (int) (sampleRate * 0.03); metroFreq = clicks[(size_t) k].accent ? 1600.0f : 1000.0f; metroPhase = -(double) clicks[(size_t) k].offset; }
         if (metroSamplesLeft > 0)
@@ -1124,7 +1269,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     // ---- audio recording
-    if (recActive.load() && isPlaying && numIn > 0 && in != nullptr)
+    if (recActive.load() && isPlaying && numIn > 0 && in != nullptr && pos0 >= recordFrom.load() - 1.0e-6)
     {
         const juce::ScopedTryLock tl (writerLock);
         if (tl.isLocked() && recWriter != nullptr)
@@ -1254,6 +1399,127 @@ void Engine::scheduleSegment (const Snapshot& s, double b0, double b1, int off, 
         }
         md.target.apply (md.base + md.depth * w * 0.5f);
     }
+}
+
+static int snapToScale (int key, int scale, int root)
+{
+    static const int scales[8][12] = {
+        { 1,1,1,1,1,1,1,1,1,1,1,1 }, { 1,0,1,0,1,1,0,1,0,1,0,1 }, { 1,0,1,1,0,1,0,1,1,0,1,0 }, { 1,0,1,1,0,1,0,1,1,0,0,1 },
+        { 1,0,1,0,1,0,0,1,0,1,0,0 }, { 1,0,0,1,0,1,0,1,0,0,1,0 }, { 1,0,0,1,0,1,1,1,0,0,1,0 }, { 1,0,1,1,0,1,0,1,0,1,1,0 } };
+    const int sc = juce::jlimit (0, 7, scale);
+    for (int d = 0; d < 7; ++d)
+    {
+        if (scales[sc][((key - d - root) % 12 + 12) % 12]) return key - d;
+        if (scales[sc][((key + d - root) % 12 + 12) % 12]) return key + d;
+    }
+    return key;
+}
+
+void Engine::applyMidiTools (ChannelRuntime& rt, int n, double beat0, double spb)
+{
+    const int arp = rt.arpMode.load(), chord = rt.chordType.load(), scale = rt.scaleType.load();
+    if (arp == 0 && chord == 0 && scale == 0 && rt.arpNote < 0 && rt.held.empty()) return;
+    static const int chords[10][4] = { { 0, -1, -1, -1 }, { 0, 4, 7, -1 }, { 0, 3, 7, -1 }, { 0, 4, 7, 10 }, { 0, 4, 7, 11 },
+                                       { 0, 3, 7, 10 }, { 0, 5, 7, -1 }, { 0, 7, -1, -1 }, { 0, 12, -1, -1 }, { 0, 7, 16, -1 } };
+    auto& out = rt.toolOut;
+    out.clear();
+    for (const auto meta : rt.midi)
+    {
+        auto m = meta.getMessage();
+        if (m.isNoteOn() || m.isNoteOff())
+        {
+            const int orig = m.getNoteNumber();
+            if (m.isNoteOn())
+            {
+                int key = scale > 0 ? snapToScale (orig, scale, rt.scaleRoot.load()) : orig;
+                int cnt = 0;
+                for (int k = 0; k < 4; ++k)
+                {
+                    const int off = chords[juce::jlimit (0, 9, chord)][k];
+                    if (off < 0) break;
+                    const int nn = juce::jlimit (0, 127, key + off);
+                    rt.noteMap[(size_t) orig][(size_t) cnt++] = nn;
+                }
+                rt.noteMapCount[(size_t) orig] = cnt;
+                for (int k = 0; k < cnt; ++k)
+                {
+                    const int nn = rt.noteMap[(size_t) orig][(size_t) k];
+                    if (arp > 0)
+                    {
+                        if (std::find (rt.held.begin(), rt.held.end(), nn) == rt.held.end()) { rt.held.push_back (nn); rt.heldOrder.push_back (nn); }
+                    }
+                    else out.addEvent (juce::MidiMessage::noteOn (m.getChannel(), nn, m.getVelocity()), meta.samplePosition);
+                }
+            }
+            else
+            {
+                const int cnt = rt.noteMapCount[(size_t) orig];
+                for (int k = 0; k < (cnt > 0 ? cnt : 1); ++k)
+                {
+                    const int nn = cnt > 0 ? rt.noteMap[(size_t) orig][(size_t) k] : orig;
+                    if (arp > 0 || ! rt.held.empty())
+                    {
+                        rt.held.erase (std::remove (rt.held.begin(), rt.held.end(), nn), rt.held.end());
+                        rt.heldOrder.erase (std::remove (rt.heldOrder.begin(), rt.heldOrder.end(), nn), rt.heldOrder.end());
+                    }
+                    if (arp == 0) out.addEvent (juce::MidiMessage::noteOff (m.getChannel(), nn), meta.samplePosition);
+                }
+                rt.noteMapCount[(size_t) orig] = 0;
+            }
+        }
+        else
+        {
+            if (m.isAllNotesOff() || m.isAllSoundOff()) { rt.held.clear(); rt.heldOrder.clear(); }
+            out.addEvent (m, meta.samplePosition);
+        }
+    }
+
+    if (arp > 0 || rt.arpNote >= 0)
+    {
+        const double rate = juce::jmax (1.0 / 32.0, (double) rt.arpRate.load());
+        const double b1 = beat0 + n / spb;
+        auto offsetOf = [&] (double b) { return juce::jlimit (0, n - 1, (int) ((b - beat0) * spb)); };
+        if (rt.arpNote >= 0 && (rt.arpOffBeat < b1 || arp == 0 || rt.held.empty()))
+        {
+            const double ob = juce::jmax (beat0, rt.arpOffBeat);
+            out.addEvent (juce::MidiMessage::noteOff (1, rt.arpNote), (arp == 0 || rt.held.empty()) ? 0 : offsetOf (ob));
+            rt.arpNote = -1;
+        }
+        if (arp > 0 && ! rt.held.empty())
+        {
+            for (double g = std::ceil (beat0 / rate - 1.0e-9) * rate; g < b1; g += rate)
+            {
+                std::vector<int> seq = arp == 5 ? rt.heldOrder : rt.held;
+                if (arp != 5) std::sort (seq.begin(), seq.end());
+                const int octs = rt.arpOct.load();
+                std::vector<int> full;
+                for (int o = 0; o < octs; ++o) for (int k : seq) full.push_back (juce::jmin (127, k + 12 * o));
+                if (full.empty()) break;
+                const int len = (int) full.size();
+                int idx;
+                switch (arp)
+                {
+                    case 2: idx = len - 1 - (rt.arpStep % len); break;
+                    case 3: { const int period = juce::jmax (1, 2 * len - 2); int st = rt.arpStep % period; idx = st < len ? st : period - st; break; }
+                    case 4: idx = juce::Random::getSystemRandom().nextInt (len); break;
+                    default: idx = rt.arpStep % len; break;
+                }
+                ++rt.arpStep;
+                const int off = offsetOf (g);
+                if (rt.arpNote >= 0) out.addEvent (juce::MidiMessage::noteOff (1, rt.arpNote), off);
+                rt.arpNote = full[(size_t) juce::jlimit (0, len - 1, idx)];
+                out.addEvent (juce::MidiMessage::noteOn (1, rt.arpNote, (juce::uint8) 100), off);
+                rt.arpOffBeat = g + rate * juce::jlimit (0.05f, 1.0f, rt.arpGate.load());
+                if (rt.arpOffBeat < b1)
+                {
+                    out.addEvent (juce::MidiMessage::noteOff (1, rt.arpNote), offsetOf (rt.arpOffBeat));
+                    rt.arpNote = -1;
+                }
+            }
+        }
+        else if (rt.held.empty()) rt.arpStep = 0;
+    }
+    rt.midi.swapWith (out);
 }
 
 void Engine::emitNotes (const Snapshot& s, int ci, const std::vector<NoteEv>& notes, double ws, double cs, double ce,

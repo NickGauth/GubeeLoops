@@ -564,14 +564,8 @@ void PianoRoll::timerCallback()
 void PianoRoll::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto head = getLocalBounds().removeFromTop (36);
-    g.setColour (col::panel);
-    g.fillRect (head);
-    g.setColour (col::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
     auto ch = ctx.project.findChannel (ctx.selectedChannel());
-    g.drawText ("Piano Roll  -  " + (ch.isValid() ? ch.getProperty (ids::name).toString() : juce::String ("(select a channel)")),
-                head.reduced (10, 0), juce::Justification::centredLeft);
+    drawViewHeader (g, getLocalBounds().removeFromTop (36), "Piano Roll", ch.isValid() ? ch.getProperty (ids::name).toString() : juce::String ("select a channel"));
 }
 
 void PianoRoll::resized()

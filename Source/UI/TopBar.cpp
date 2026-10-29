@@ -2,7 +2,7 @@
 
 namespace gubee
 {
-static void styleToggle (juce::TextButton& b)
+static void styleToggle (juce::Button& b)
 {
     b.setClickingTogglesState (false);
     b.setColour (juce::TextButton::buttonOnColourId, col::accent);
@@ -17,13 +17,11 @@ TopBar::TopBar (AppContext& c) : ctx (c)
         b->onClick = [this, b] { if (onMenu) onMenu (b->getButtonText(), b); };
     }
 
-    playBtn.setButtonText (juce::CharPointer_UTF8 ("\xe2\x96\xb6"));   // ▶
-    stopBtn.setButtonText (juce::CharPointer_UTF8 ("\xe2\x96\xa0"));   // ■
-    recBtn.setButtonText (juce::CharPointer_UTF8 ("\xe2\x97\x8f"));    // ●
     playBtn.setTooltip ("Play / Pause (Space)");
     stopBtn.setTooltip ("Stop and return to start");
     recBtn.setTooltip ("Record: audio input in Song mode, notes in Pattern mode (R)");
-    for (auto* b : { &playBtn, &stopBtn, &recBtn, &patModeBtn, &songModeBtn, &jamModeBtn, &metroBtn }) { styleToggle (*b); addAndMakeVisible (*b); }
+    for (auto* b : std::initializer_list<juce::Button*> { &playBtn, &stopBtn, &recBtn, &patModeBtn, &songModeBtn, &jamModeBtn, &metroBtn }) { styleToggle (*b); addAndMakeVisible (*b); }
+    metroBtn.setTooltip ("Metronome (Ctrl+M)");
     recBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe05050));
     playBtn.onClick = [this] { ctx.engine->togglePlay(); };
     stopBtn.onClick = [this] { ctx.engine->stop(); };
@@ -178,9 +176,15 @@ void TopBar::timerCallback()
 
 void TopBar::paint (juce::Graphics& g)
 {
-    g.fillAll (col::panel);
-    g.setColour (col::outline);
+    g.setGradientFill (juce::ColourGradient (col::panelHi.brighter (0.03f), 0, 0, col::panel.darker (0.1f), 0, (float) getHeight(), false));
+    g.fillAll();
+    g.setColour (juce::Colours::black.withAlpha (0.5f));
     g.drawHorizontalLine (getHeight() - 1, 0, (float) getWidth());
+    g.setColour (juce::Colours::black.withAlpha (0.25f));
+    g.drawHorizontalLine (44, 0, (float) getWidth());
+    // grouped transport "pill"
+    g.setColour (col::bg.withAlpha (0.55f));
+    g.fillRoundedRectangle (transportArea.toFloat(), 8.0f);
     drawCatLogo (g, logoArea.toFloat());
     g.setColour (col::text);
     g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
@@ -188,10 +192,12 @@ void TopBar::paint (juce::Graphics& g)
 
     // time display  bar:beat:step
     double pos = ctx.engine->getBeat();
-    int bar = (int) (pos / 4.0) + 1, beat = (int) std::fmod (pos, 4.0) + 1, step = (int) std::fmod (pos * 4.0, 4.0) + 1;
-    g.setColour (col::bg);
-    g.fillRoundedRectangle (timeArea.toFloat(), 4);
-    g.setColour (col::text);
+    int bar = (int) std::floor (pos / 4.0) + 1, beat = (int) std::floor (pos - std::floor (pos / 4.0) * 4.0) + 1, step = (int) std::floor (pos * 4.0 - std::floor (pos) * 4.0) + 1;
+    g.setColour (juce::Colour (0xff15171a));
+    g.fillRoundedRectangle (timeArea.toFloat(), 5);
+    g.setColour (juce::Colours::black.withAlpha (0.5f));
+    g.drawRoundedRectangle (timeArea.toFloat(), 5, 1);
+    g.setColour (pos < 0 ? col::accent2 : col::accent);
     g.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 18.0f, juce::Font::bold));
     g.drawText (juce::String::formatted ("%3d:%d:%d", bar, beat, step), timeArea, juce::Justification::centred);
 
@@ -231,6 +237,8 @@ void TopBar::resized()
     row1.removeFromLeft (126);
     for (auto* b : { &fileBtn, &editBtn, &toolsBtn }) { b->setBounds (row1.removeFromLeft (54)); row1.removeFromLeft (3); }
     row1.removeFromLeft (14);
+    transportArea = row1.withWidth (3 * 41 + 10 + 140 + 12 + 104 + 6 + 100 + 6 + 30 + 6 + 38 + 8).expanded (0, 2);
+    row1.removeFromLeft (5);
     playBtn.setBounds (row1.removeFromLeft (38)); row1.removeFromLeft (3);
     stopBtn.setBounds (row1.removeFromLeft (38)); row1.removeFromLeft (3);
     recBtn.setBounds (row1.removeFromLeft (38)); row1.removeFromLeft (10);
@@ -240,7 +248,7 @@ void TopBar::resized()
     tempo.setBounds (row1.removeFromLeft (104)); row1.removeFromLeft (6);
     timeArea = row1.removeFromLeft (100); row1.removeFromLeft (6);
     swing.setBounds (row1.removeFromLeft (30).withTrimmedBottom (9)); row1.removeFromLeft (6);
-    metroBtn.setBounds (row1.removeFromLeft (56)); row1.removeFromLeft (10);
+    metroBtn.setBounds (row1.removeFromLeft (38)); row1.removeFromLeft (16);
     patternBox.setBounds (row1.removeFromLeft (150)); row1.removeFromLeft (2);
     patMenuBtn.setBounds (row1.removeFromLeft (28)); row1.removeFromLeft (10);
     meterArea = row1.removeFromRight (90).reduced (0, 6);

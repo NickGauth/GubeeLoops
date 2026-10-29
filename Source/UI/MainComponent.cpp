@@ -44,9 +44,11 @@ MainComponent::MainComponent (AppContext& c) : ctx (c), topBar (c), browser (c)
     };
     ctx.openProcessorWindow = [this] (juce::AudioProcessor* p, const juce::String& key) { openProcessorWindow (p, key, p->getName()); };
     ctx.openPluginManager = [this] { openWindow ("plugins", "Plugin Manager", makePluginManager (ctx), true); };
+    ctx.openMidiTools = [this] (int id) { openWindow ("tools:" + juce::String (id), "MIDI tools", makeMidiToolsPanel (ctx, id), false); };
     ctx.engine->onStatus = [this] (const juce::String& s) { juce::MessageManager::callAsync ([this, s] { topBar.setStatus (s); }); };
 
     typingPiano = ctx.props->getBoolValue ("typingPiano", true);
+    ctx.engine->countIn = ctx.props->getBoolValue ("countIn", true);
     ctx.project.root.addListener (this);
     setWantsKeyboardFocus (true);
     showView (viewRack);
@@ -66,6 +68,7 @@ MainComponent::~MainComponent()
     ctx.openSlotEditor = nullptr;
     ctx.openProcessorWindow = nullptr;
     ctx.openPluginManager = nullptr;
+    ctx.openMidiTools = nullptr;
     ctx.engine->onStatus = nullptr;
 }
 
@@ -218,11 +221,13 @@ void MainComponent::menu (const juce::String& name, juce::Component* button)
         m.addItem (2, "Modulators (LFOs on any knob)...");
         m.addItem (3, "Plugin manager (find VST3 plugins)...");
         m.addItem (4, "Audio & MIDI settings...");
+        m.addItem (10, "MIDI learn (link controller knobs)...");
         m.addSeparator();
         m.addItem (5, "Computer keyboard plays notes (Z-M, Q-I rows; [ ] change octave)", true, typingPiano);
         m.addItem (6, "Show browser  (F8 = Jam, Ctrl+B = browser)", true, browserVisible);
         m.addItem (7, "Metronome", true, ctx.engine->metronome.load());
         m.addItem (8, "Quantize recorded notes", true, ctx.engine->quantizeRecording.load());
+        m.addItem (11, "Count-in (1 bar) before recording", true, ctx.engine->countIn.load());
         m.addSeparator();
         m.addItem (9, "About GubeeLoops");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (button), [this] (int r)
@@ -235,6 +240,8 @@ void MainComponent::menu (const juce::String& name, juce::Component* button)
             else if (r == 6) { browserVisible = ! browserVisible; resized(); }
             else if (r == 7) ctx.engine->metronome = ! ctx.engine->metronome;
             else if (r == 8) ctx.engine->quantizeRecording = ! ctx.engine->quantizeRecording;
+            else if (r == 10) openWindow ("midilearn", "MIDI learn", makeMidiLearnPanel (ctx), true);
+            else if (r == 11) { ctx.engine->countIn = ! ctx.engine->countIn; ctx.props->setValue ("countIn", ctx.engine->countIn.load()); }
             else if (r == 9)
                 juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "GubeeLoops",
                     "GubeeLoops " + juce::JUCEApplication::getInstance()->getApplicationVersion() + "\n\n"
