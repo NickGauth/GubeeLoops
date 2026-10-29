@@ -20,7 +20,7 @@ jobs:
       matrix:
         part: [ app, plugins ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch ASIO SDK (optional)
         if: matrix.part == 'app'
@@ -37,12 +37,14 @@ jobs:
         run: |
           $app = if ("${{ matrix.part }}" -eq "app") { "ON" } else { "OFF" }
           $plg = if ("${{ matrix.part }}" -eq "plugins") { "ON" } else { "OFF" }
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DGUBEE_BUILD_APP=$app -DGUBEE_BUILD_PLUGINS=$plg `
-            "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR"
+          cmake -S . -B build -A x64 -DGUBEE_BUILD_APP=$app -DGUBEE_BUILD_PLUGINS=$plg "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR" *>&1 | Tee-Object -FilePath ci.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4 -- /m /p:CL_MPCount=4
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 4 -- /m /p:CL_MPCount=4 /v:minimal *>&1 | Tee-Object -FilePath ci.log -Append
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Collect
         shell: pwsh
@@ -63,6 +65,23 @@ jobs:
         with:
           name: gubee-${{ matrix.part }}
           path: out
+
+      - name: Publish failure log
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force logpub | Out-Null
+          if (Test-Path ci.log) {
+            Select-String -Path ci.log -Pattern "error|Error|CMake Error|fatal" | Select-Object -First 300 | ForEach-Object { $_.Line } | Out-File logpub/errors.txt
+            Get-Content ci.log -Tail 400 | Out-File logpub/tail.txt
+          } else { "no log" | Out-File logpub/errors.txt }
+          cd logpub
+          git init -q -b ci-log-${{ matrix.part }}
+          git config user.name "gubee-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git add -A
+          git commit -qm "CI failure log ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-log-${{ matrix.part }}
 
   publish:
     needs: build

@@ -37,6 +37,8 @@ public:
     juce::ValueTree addSamplerChannel (const juce::File& f);
     juce::ValueTree addPadsChannel (const juce::String& name, bool withStarterKit);
     juce::ValueTree addPluginChannel (const juce::PluginDescription& d);
+    /** kind: "pads-kit", "pads", "sampler", "builtin", "plugin" (as returned by showInstrumentMenu). */
+    juce::ValueTree addInstrument (const juce::String& kind, const juce::String& builtin, const juce::String& xml, const juce::String& name);
 
     // navigation hooks (set by MainComponent)
     std::function<void (const juce::String&)> setStatus;
