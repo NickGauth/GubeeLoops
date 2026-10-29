@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="#1E2126"/>
+  <!-- ears -->
+  <path d="M104 236 L124 58 L238 150 Z" fill="#7D838C" stroke="#5E636B" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M408 236 L388 58 L274 150 Z" fill="#7D838C" stroke="#5E636B" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M134 196 L142 104 L206 156 Z" fill="#E8A0B0"/>
+  <path d="M378 196 L370 104 L306 156 Z" fill="#E8A0B0"/>
+  <!-- head -->
+  <ellipse cx="256" cy="292" rx="172" ry="150" fill="#8A8F98" stroke="#5E636B" stroke-width="8"/>
+  <!-- forehead stripes -->
+  <rect x="226" y="150" width="14" height="52" rx="7" fill="#6B7078"/>
+  <rect x="249" y="144" width="14" height="62" rx="7" fill="#6B7078"/>
+  <rect x="272" y="150" width="14" height="52" rx="7" fill="#6B7078"/>
+  <!-- muzzle -->
+  <ellipse cx="256" cy="362" rx="74" ry="52" fill="#B4B8BF"/>
+  <!-- eyes -->
+  <ellipse cx="186" cy="280" rx="34" ry="40" fill="#A6E36B"/>
+  <ellipse cx="326" cy="280" rx="34" ry="40" fill="#A6E36B"/>
+  <ellipse cx="186" cy="282" rx="10" ry="30" fill="#15171A"/>
+  <ellipse cx="326" cy="282" rx="10" ry="30" fill="#15171A"/>
+  <circle cx="198" cy="264" r="7" fill="#FFFFFF"/>
+  <circle cx="338" cy="264" r="7" fill="#FFFFFF"/>
+  <!-- nose and mouth -->
+  <path d="M236 334 L276 334 L256 356 Z" fill="#E8A0B0" stroke-linejoin="round"/>
+  <path d="M256 356 Q246 380 226 372 M256 356 Q266 380 286 372" fill="none" stroke="#3A3E44" stroke-width="7" stroke-linecap="round"/>
+  <!-- whiskers -->
+  <g stroke="#E6E8EB" stroke-width="5" stroke-linecap="round">
+    <line x1="200" y1="352" x2="74" y2="330"/>
+    <line x1="200" y1="366" x2="70" y2="374"/>
+    <line x1="312" y1="352" x2="438" y2="330"/>
+    <line x1="312" y1="366" x2="442" y2="374"/>
+  </g>
+</svg>
