@@ -217,8 +217,8 @@ void TopBar::paint (juce::Graphics& g)
         g.drawText (statusText, statusArea, juce::Justification::centredRight, true);
     }
     g.setColour (col::textDim);
-    g.setFont (juce::FontOptions (10.0f));
-    g.drawText ("SWING", swing.getBounds().translated (0, 15), juce::Justification::centredTop);
+    g.setFont (juce::FontOptions (9.0f));
+    g.drawText ("SWING", swing.getBounds().withY (swing.getBottom() - 1).withHeight (10).expanded (12, 0), juce::Justification::centred);
 }
 
 void TopBar::resized()
@@ -239,13 +239,14 @@ void TopBar::resized()
     jamModeBtn.setBounds (row1.removeFromLeft (44)); row1.removeFromLeft (10);
     tempo.setBounds (row1.removeFromLeft (104)); row1.removeFromLeft (6);
     timeArea = row1.removeFromLeft (100); row1.removeFromLeft (6);
-    swing.setBounds (row1.removeFromLeft (30).withTrimmedBottom (8)); row1.removeFromLeft (6);
+    swing.setBounds (row1.removeFromLeft (30).withTrimmedBottom (9)); row1.removeFromLeft (6);
     metroBtn.setBounds (row1.removeFromLeft (56)); row1.removeFromLeft (10);
     patternBox.setBounds (row1.removeFromLeft (150)); row1.removeFromLeft (2);
     patMenuBtn.setBounds (row1.removeFromLeft (28)); row1.removeFromLeft (10);
     meterArea = row1.removeFromRight (90).reduced (0, 6);
     row1.removeFromRight (6);
     cpuArea = row1.removeFromRight (56);
+    row1.removeFromRight (10);
     statusArea = row1;
 
     int w = juce::jmin (130, row2.getWidth() / juce::jmax (1, viewBtns.size()));

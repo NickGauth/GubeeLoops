@@ -109,35 +109,42 @@ std::vector<int> detectTransients (const Buffer& b, double sr, float sensitivity
     const int n = b.getNumSamples();
     const int hop = 256;
     const int frames = n / hop;
-    if (frames < 4) return pts;
+    if (frames < 6) return pts;
+    // log energy of the high-passed (first difference) signal per frame
     std::vector<float> e ((size_t) frames, 0.0f);
     for (int f = 0; f < frames; ++f)
     {
-        double s = 0;
+        double sum = 0;
         for (int c = 0; c < b.getNumChannels(); ++c)
         {
             auto* d = b.getReadPointer (c);
-            for (int i = f * hop + 1; i < (f + 1) * hop; ++i) { float hp = d[i] - d[i - 1]; s += hp * hp; }
+            for (int i = juce::jmax (1, f * hop); i < (f + 1) * hop; ++i) { float hp = d[i] - d[i - 1]; sum += hp * hp; }
         }
-        e[(size_t) f] = (float) std::log10 (1.0e-9 + s);
+        e[(size_t) f] = (float) std::log10 (1.0e-9 + sum);
     }
-    std::vector<float> flux ((size_t) frames, 0.0f);
-    for (int f = 1; f < frames; ++f) flux[(size_t) f] = juce::jmax (0.0f, e[(size_t) f] - e[(size_t) f - 1]);
-    double mean = 0, sq = 0;
-    for (auto v : flux) { mean += v; sq += v * v; }
-    mean /= frames;
-    double sd = std::sqrt (juce::jmax (0.0, sq / frames - mean * mean));
-    const float thresh = (float) (mean + sd * (0.4 + (1.0 - sensitivity) * 3.0));
+    const float emax = *std::max_element (e.begin(), e.end());
+    const float thr = 0.15f + (1.0f - juce::jlimit (0.0f, 1.0f, sensitivity)) * 0.6f;   // log10 units (1 = 10 dB)
     const int minGap = juce::jmax (1, (int) (minGapSeconds * sr / hop));
     int last = -minGap;
-    const float floorDb = *std::max_element (e.begin(), e.end()) - 6.0f * (1.0f + (1.0f - sensitivity) * 0.0f) - 4.0f;
-    for (int f = 1; f < frames - 1; ++f)
+    auto peakAbs = [&] (int i) { float m = 0; for (int c = 0; c < b.getNumChannels(); ++c) m = juce::jmax (m, std::abs (b.getSample (c, i))); return m; };
+    for (int f = 3; f < frames - 1; ++f)
     {
-        if (flux[(size_t) f] > thresh && flux[(size_t) f] >= flux[(size_t) f - 1] && flux[(size_t) f] >= flux[(size_t) f + 1]
-            && e[(size_t) f] > floorDb - 3.0f && f - last >= minGap)
+        const float prev = (e[(size_t) f - 1] + e[(size_t) f - 2] + e[(size_t) f - 3]) / 3.0f;
+        const float flux = e[(size_t) f] - prev;
+        if (flux > thr && e[(size_t) f] >= e[(size_t) f + 1] - 0.05f && e[(size_t) f] > emax - 3.5f && f - last >= minGap)
         {
-            int pos = (f - 1) * hop;
-            if (pos > 0) pts.push_back (pos);
+            int g = f;
+            while (g > 1 && e[(size_t) g - 1] < e[(size_t) g] - 0.05f && f - g < 3) --g;
+            // refine to the first sample that rises above 20% of the local peak
+            const int s0 = juce::jmax (0, (g - 1) * hop), s1 = juce::jmin (n, (f + 2) * hop);
+            float local = 0, pre = 0;
+            for (int i = s0; i < s1; ++i) local = juce::jmax (local, peakAbs (i));
+            for (int i = juce::jmax (0, s0 - hop); i < s0; ++i) pre = juce::jmax (pre, peakAbs (i));
+            const float level = juce::jmax (local * 0.2f, pre * 1.3f);
+            int pos = g * hop;
+            if (level < local)
+                for (int i = s0; i < s1; ++i) if (peakAbs (i) > level) { pos = juce::jmax (0, i - 16); break; }
+            if (pos > 0 && pos - pts.back() > hop) pts.push_back (pos);
             last = f;
         }
     }

@@ -482,6 +482,12 @@ void Engine::sync()
     s->loopStart = (double) project.root.getProperty (ids::loopStart, 0.0);
     s->loopEnd = (double) project.root.getProperty (ids::loopEnd, 0.0);
 
+    // things driven by automation / modulators keep their live value while playing
+    std::set<juce::String> automated;
+    for (auto c : project.playlist()) if (c.hasType (ids::CLIP) && c.getProperty (ids::kind).toString() == "auto") automated.insert (c.getProperty (ids::target).toString());
+    for (auto m : project.mods()) if ((bool) m.getProperty (ids::enabled, true)) automated.insert (m.getProperty (ids::target).toString());
+    const bool live = playing.load();
+
     // channels
     std::map<int, int> chIndex;
     std::set<int> seen;
@@ -492,11 +498,9 @@ void Engine::sync()
         auto key = c.getProperty (ids::kind).toString() + "|" + c.getProperty (ids::builtin).toString() + "|" + c.getProperty (ids::plugin).toString();
         auto& rt = channelRts[id];
         if (rt == nullptr || rt->key != key) rt = makeChannel (c);
-        if (! playing)
-        {
-            rt->vol = (float) c.getProperty (ids::vol, 0.78f);
-            rt->pan = (float) c.getProperty (ids::pan, 0.0f);
-        }
+        const auto base = "ch:" + juce::String (id) + ":";
+        if (! live || ! automated.count (base + "vol")) rt->vol = (float) c.getProperty (ids::vol, 0.78f);
+        if (! live || ! automated.count (base + "pan")) rt->pan = (float) c.getProperty (ids::pan, 0.0f);
         rt->mute = (bool) c.getProperty (ids::mute, false);
         applySamplerSettings (*rt, c);
         chIndex[id] = (int) s->channels.size();
@@ -511,11 +515,9 @@ void Engine::sync()
     {
         auto mt = project.mixerTrack (i);
         auto trt = trackRts[(size_t) i];
-        if (! playing)
-        {
-            trt->vol = (float) mt.getProperty (ids::vol, 0.8f);
-            trt->pan = (float) mt.getProperty (ids::pan, 0.0f);
-        }
+        const auto mbase = "mx:" + juce::String (i) + ":";
+        if (! live || ! automated.count (mbase + "vol")) trt->vol = (float) mt.getProperty (ids::vol, 0.8f);
+        if (! live || ! automated.count (mbase + "pan")) trt->pan = (float) mt.getProperty (ids::pan, 0.0f);
         trt->mute = (bool) mt.getProperty (ids::mute, false);
         trt->solo = (bool) mt.getProperty (ids::solo, false);
         if (i > 0 && trt->solo) s->anySolo = true;
@@ -1025,6 +1027,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     // ---- mixer
+    if (stemOnly.has_value() && *stemOnly > 0) s.tracks[0].rt->buf.clear();   // stems exclude sounds routed straight to master
     auto runTrack = [&] (int i)
     {
         auto& tr = s.tracks[(size_t) i];
@@ -1311,15 +1314,19 @@ void Engine::renderAudio (const Snapshot& s, const ProcessedPtr& a, int mixer, d
 //==============================================================================
 bool Engine::exportAudio (const ExportOptions& opt, std::function<bool (float)> progress, juce::String& error)
 {
-    storeStatesToTree();
-    syncNow();
+    // NB: call storeStatesToTree() + syncNow() on the message thread before this (it may run on a worker thread)
     SnapshotPtr sp;
     { const juce::SpinLock::ScopedLockType sl (snapLock); sp = snapshot; }
     if (sp == nullptr) { error = "Nothing to export"; return false; }
 
     const bool songEmpty = sp->songEnd <= 0.0;
     const bool patternOnly = opt.patternOnly || songEmpty;
-    double lengthBeats = patternOnly ? project.patternLengthBeats (currentPattern.load()) : std::ceil (sp->songEnd / 4.0 - 1.0e-9) * 4.0;
+    double lengthBeats = std::ceil (sp->songEnd / 4.0 - 1.0e-9) * 4.0;
+    if (patternOnly)
+    {
+        auto it = sp->patternIndex.find (currentPattern.load());
+        lengthBeats = it != sp->patternIndex.end() ? sp->patterns[(size_t) it->second].length : 4.0;
+    }
     const double tailBeats = 2.0;
     const double spb = sampleRate * 60.0 / sp->tempo;
     const auto savedMode = mode.load();
@@ -1330,9 +1337,9 @@ bool Engine::exportAudio (const ExportOptions& opt, std::function<bool (float)> 
     {
         std::set<int> used;
         for (auto& c : sp->channels) used.insert (c.mixer);
-        for (auto c : project.channels()) for (auto p : c) if (p.hasType (ids::PAD) && (int) p.getProperty (ids::output, -1) > 0) used.insert ((int) p.getProperty (ids::output));
+        for (auto& c : sp->channels) if (c.rt->pads) for (int p = 0; p < DrumPadsProcessor::numPads; ++p) if (c.rt->pads->padOutputTarget (p) > 0) used.insert (c.rt->pads->padOutputTarget (p));
         for (auto& c : sp->clips) if (c.kind == 1) used.insert (c.mixer);
-        for (int t : used) if (t > 0) passes.push_back (t);
+        for (int t : used) passes.push_back (t);
         passes.push_back (std::nullopt);
     }
     else passes.push_back (std::nullopt);
@@ -1354,7 +1361,8 @@ bool Engine::exportAudio (const ExportOptions& opt, std::function<bool (float)> 
         juce::File target = opt.file;
         if (stemOnly.has_value())
         {
-            auto name = project.mixerTrack (*stemOnly).getProperty (ids::name).toString();
+            auto name = *stemOnly == 0 ? juce::String ("Master (direct)")
+                      : opt.trackNames.size() > *stemOnly ? opt.trackNames[*stemOnly] : "Insert " + juce::String (*stemOnly);
             target = opt.file.getSiblingFile (opt.file.getFileNameWithoutExtension() + " - " + juce::File::createLegalFileName (name))
                          .withFileExtension (opt.file.getFileExtension());
         }
@@ -1376,17 +1384,22 @@ bool Engine::exportAudio (const ExportOptions& opt, std::function<bool (float)> 
         const juce::int64 total = (juce::int64) ((lengthBeats + tailBeats) * spb);
         const juce::int64 playEnd = (juce::int64) (lengthBeats * spb);
         juce::int64 done = 0;
+        float peak = 0;
         while (done < total)
         {
             int nb = (int) std::min<juce::int64> (block, total - done);
+            if (done < playEnd) nb = (int) std::min<juce::int64> (nb, playEnd - done);   // stop exactly at the end
             if (done >= playEnd && playing) { playing = false; panicRequest = true; }
             float* ptrs[2] = { buf.getWritePointer (0), buf.getWritePointer (1) };
             process (nullptr, 0, ptrs, 2, nb);
             writer->writeFromAudioSampleBuffer (buf, 0, nb);
+            peak = juce::jmax (peak, buf.getMagnitude (0, nb));
             done += nb;
             if (progress && ! progress ((float) ((pi + (double) done / (double) total) / passes.size()))) { ok = false; error = "Cancelled"; break; }
         }
         playing = false;
+        writer.reset();
+        if (stemOnly.has_value() && peak < 1.0e-6f) target.deleteFile();   // skip silent stems
     }
 
     stemOnly.reset();

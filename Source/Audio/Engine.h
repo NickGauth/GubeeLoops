@@ -1,5 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
+#include <optional>
+#include <set>
 #include "Model/Project.h"
 #include "AudioTools.h"
 #include "GubeeDSP/GubeeEffects.h"
@@ -199,7 +201,7 @@ public:
     void syncNow() { cancelPendingUpdate(); sync(); }
 
     // export
-    struct ExportOptions { juce::File file; int format = 0; int bits = 24; bool stems = false; bool patternOnly = false; };
+    struct ExportOptions { juce::File file; int format = 0; int bits = 24; bool stems = false; bool patternOnly = false; juce::StringArray trackNames; };
     bool exportAudio (const ExportOptions&, std::function<bool (float)> progress, juce::String& error);
 
     double getSampleRate() const { return sampleRate; }

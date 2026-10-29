@@ -75,8 +75,7 @@ if(GUBEE_BUILD_APP)
             juce::juce_dsp
             juce::juce_gui_extra
         PUBLIC
-            juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags)
+            juce::juce_recommended_config_flags)
 endif()
 
 # ---------------------------------------------------------------- Gubee plugin pack
@@ -98,7 +97,7 @@ if(GUBEE_BUILD_PLUGINS)
         target_compile_definitions(${target} PUBLIC ${GUBEE_COMMON_DEFS} GUBEE_PLUGIN_CLASS=${klass})
         target_link_libraries(${target}
             PRIVATE juce::juce_audio_utils juce::juce_dsp
-            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags)
+            PUBLIC juce::juce_recommended_config_flags)
     endfunction()
 
     gubee_plugin(GubeeEQ       "Gubee EQ"       GbEq gubee::EQProcessor        FALSE Fx)

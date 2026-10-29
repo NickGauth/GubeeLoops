@@ -81,9 +81,9 @@ inline void drawCatLogo (juce::Graphics& g, juce::Rectangle<float> area, bool wi
     g.strokePath (mouth, juce::PathStrokeType (7 * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     g.setColour (juce::Colour (0xffe6e8eb));
-    for (auto [x1, y1, x2, y2] : { std::array<float, 4> { 200, 352, 74, 330 }, { 200, 366, 70, 374 },
-                                   { 312, 352, 438, 330 }, { 312, 366, 442, 374 } })
-        g.drawLine ({ P (x1, y1), P (x2, y2) }, 5 * s);
+    static const float whiskers[4][4] = { { 200, 352, 74, 330 }, { 200, 366, 70, 374 }, { 312, 352, 438, 330 }, { 312, 366, 442, 374 } };
+    for (auto& w : whiskers)
+        g.drawLine ({ P (w[0], w[1]), P (w[2], w[3]) }, 5 * s);
 }
 
 /** Dark gray theme shared by the app and the Gubee plugins. */
