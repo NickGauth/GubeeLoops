@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "UI/MainComponent.h"
+#include "GubeeDSP/GubeeFX.h"
 
 namespace gubee
 {
@@ -168,6 +169,66 @@ public:
                          + " peak=" + juce::String (all.getMagnitude (0, all.getNumSamples()), 3));
                     tools::writeWav (dir.getChildFile ("jam.wav"), all, sr);
                     c.engine->stop();
+                    break;
+                }
+                case 13:
+                {
+                    // arpeggiator: synth channel, chord held for a bar, arp up at 1/16
+                    auto syn = c.project.channels().getChild (2);
+                    syn.setProperty (ids::arp, 1, nullptr); syn.setProperty (ids::arpRate, 0.25, nullptr); syn.setProperty (ids::arpGate, 0.5, nullptr);
+                    auto pat = c.project.addPattern ("arp test");
+                    const int pid = (int) pat.getProperty (ids::id);
+                    for (int k : { 60, 64, 67 }) c.project.addNote (pid, (int) syn.getProperty (ids::id), 0, 4, k, 0.8f);
+                    c.setCurrentPattern (pid);
+                    c.engine->storeStatesToTree(); c.engine->syncNow();
+                    juce::String err; Engine::ExportOptions o; o.file = dir.getChildFile ("arp.wav"); o.patternOnly = true;
+                    c.engine->exportAudio (o, nullptr, err);
+                    if (auto d = c.samples.get (o.file))
+                    {
+                        auto tr = tools::detectTransients (d->buffer, d->sampleRate, 0.7f, 0.03);
+                        log ("arp onsets in 1 bar: " + juce::String ((int) tr.size()) + " (expect ~16)");
+                    }
+                    syn.setProperty (ids::arp, 0, nullptr);
+                    break;
+                }
+                case 14:
+                {
+                    // sidechain: comp on the synth's track keyed from the drum track
+                    c.setCurrentPattern ((int) c.project.patterns().getChild (0).getProperty (ids::id));
+                    auto syn = c.project.channels().getChild (2);
+                    const int synTrack = (int) syn.getProperty (ids::mixer);
+                    const int kitTrack = (int) c.project.channels().getChild (0).getProperty (ids::mixer);
+                    auto pat = c.project.findPattern (c.currentPattern());
+                    for (int k : { 48, 55 }) c.project.addNote (c.currentPattern(), (int) syn.getProperty (ids::id), 0, 4, k, 0.8f);
+                    c.project.patterns();
+                    auto measure = [&] (const juce::String& nm)
+                    {
+                        c.engine->storeStatesToTree(); c.engine->syncNow();
+                        juce::String err; Engine::ExportOptions o; o.file = dir.getChildFile (nm + ".wav"); o.patternOnly = true; o.stems = true;
+                        for (int i = 0; i < numMixerTracks; ++i) o.trackNames.add ("t" + juce::String (i));
+                        c.engine->exportAudio (o, nullptr, err);
+                        auto f = dir.getChildFile (nm + " - t" + juce::String (synTrack) + ".wav");
+                        c.samples.invalidate (f);
+                        auto d = c.samples.get (f);
+                        return d ? d->buffer.getRMSLevel (0, 0, d->buffer.getNumSamples()) : -1.0f;
+                    };
+                    const float before = measure ("sc-off");
+                    auto slot = c.project.setSlot (synTrack, 0, "builtin", "Gubee Comp", {});
+                    slot.setProperty (ids::sc, kitTrack, nullptr);
+                    c.engine->syncNow();
+                    if (auto* comp = c.engine->slotProcessor (synTrack, 0))
+                        if (auto* gp = dynamic_cast<GubeeProcessor*> (comp))
+                        {
+                            gp->apvts.getParameter ("sidechain")->setValueNotifyingHost (1.0f);
+                            gp->apvts.getParameter ("threshold")->setValueNotifyingHost (gp->apvts.getParameter ("threshold")->convertTo0to1 (-40.0f));
+                            gp->apvts.getParameter ("ratio")->setValueNotifyingHost (gp->apvts.getParameter ("ratio")->convertTo0to1 (20.0f));
+                        }
+                    if (auto* comp = c.engine->slotProcessor (synTrack, 0))
+                        log ("comp channels in=" + juce::String (comp->getTotalNumInputChannels()) + " buses=" + juce::String (comp->getBusCount (true))
+                             + " scEnabled=" + juce::String ((int) (comp->getBusCount (true) > 1 && comp->getBus (true, 1)->isEnabled())));
+                    const float after = measure ("sc-on");
+                    log ("sidechain: synth RMS " + juce::String (before, 4) + " -> " + juce::String (after, 4) + " (should drop)");
+                    juce::ignoreUnused (pat);
                     break;
                 }
                 case 15: c.engine->stop(); c.project.save (dir.getChildFile ("test.gubee")); log ("saved"); break;

@@ -4,13 +4,8 @@
 #include <set>
 #include "Model/Project.h"
 #include "AudioTools.h"
-#include "GubeeDSP/GubeeEffects.h"
-#include "GubeeDSP/GubeeInstruments.h"
 #include "GubeeDSP/GubeeSampler.h"
 #include "GubeeDSP/GubeeDrumPads.h"
-#include "GubeeDSP/GubeeDynamics.h"
-#include "GubeeDSP/GubeeFX.h"
-#include "GubeeDSP/GubeeSynths.h"
 
 namespace gubee
 {
