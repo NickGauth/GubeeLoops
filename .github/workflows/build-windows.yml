@@ -1,9 +1,20 @@
 name: Build Windows
 
+# Fast builds:
+#  - sccache keeps compiled objects between runs (only changed files recompile)
+#  - Ninja + MSVC, with 4 parallel compiles to match the 4-core runner
+#  - the app and the plugin pack only rebuild when their code changed;
+#    anything not rebuilt is carried over from the previous 'windows-build' branch
+
 on:
   push:
     branches: [ master ]
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Rebuild everything"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -12,18 +23,58 @@ concurrency:
   group: build-windows
   cancel-in-progress: true
 
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  JUCE_TAG: "8.0.10"
+
 jobs:
-  build:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [ app, plugins-1, plugins-2, plugins-3, plugins-4 ]
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.decide.outputs.app }}
+      plugins: ${{ steps.decide.outputs.plugins }}
     steps:
       - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'Source/**'
+              - 'Assets/**'
+              - 'CMakeLists.txt'
+              - '.github/workflows/**'
+            plugins:
+              - 'Source/GubeeDSP/**'
+              - 'CMakeLists.txt'
+              - '.github/workflows/**'
+      - id: decide
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full }}" = "true" ]; then
+            echo "app=true" >> $GITHUB_OUTPUT; echo "plugins=true" >> $GITHUB_OUTPUT
+          else
+            echo "app=${{ steps.filter.outputs.app }}" >> $GITHUB_OUTPUT
+            echo "plugins=${{ steps.filter.outputs.plugins }}" >> $GITHUB_OUTPUT
+          fi
 
+  app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Cache JUCE source
+        uses: actions/cache@v4
+        with:
+          path: juce
+          key: juce-${{ env.JUCE_TAG }}
+      - name: Get JUCE
+        shell: pwsh
+        run: if (!(Test-Path juce/CMakeLists.txt)) { git clone -q --depth 1 --branch $env:JUCE_TAG https://github.com/juce-framework/JUCE.git juce }
       - name: Fetch ASIO SDK (optional)
-        if: matrix.part == 'app'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -31,43 +82,30 @@ jobs:
           Expand-Archive asiosdk.zip -DestinationPath asio
           $dir = Get-ChildItem asio -Directory | Select-Object -First 1
           echo "ASIO_DIR=$($dir.FullName)" >> $env:GITHUB_ENV
-
       - name: Configure
         shell: pwsh
         run: |
-          $part = "${{ matrix.part }}"
-          $app = if ($part -eq "app") { "ON" } else { "OFF" }
-          $plg = if ($part -like "plugins-*") { "ON" } else { "OFF" }
-          $grp = if ($part -like "plugins-*") { $part.Substring(8) } else { "0" }
-          cmake -S . -B build -A x64 -DGUBEE_BUILD_APP=$app -DGUBEE_BUILD_PLUGINS=$plg "-DGUBEE_PLUGIN_GROUP=$grp" "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR" *>&1 | Tee-Object -FilePath ci.log
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+            "-DGUBEE_JUCE_DIR=$pwd/juce" -DGUBEE_BUILD_APP=ON -DGUBEE_BUILD_PLUGINS=OFF `
+            "-DGUBEE_ASIO_SDK_DIR=$env:ASIO_DIR" *>&1 | Tee-Object -FilePath ci.log
           if ($LASTEXITCODE -ne 0) { exit 1 }
-
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel 4 -- /m /p:CL_MPCount=4 /v:minimal *>&1 | Tee-Object -FilePath ci.log -Append
+          cmake --build build --parallel 4 *>&1 | Tee-Object -FilePath ci.log -Append
           if ($LASTEXITCODE -ne 0) { exit 1 }
-
+          sccache --show-stats
       - name: Collect
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force out | Out-Null
-          if ("${{ matrix.part }}" -eq "app") {
-            New-Item -ItemType Directory -Force out/App | Out-Null
-            Copy-Item build/GubeeLoops_artefacts/Release/GubeeLoops.exe out/App/
-          } else {
-            New-Item -ItemType Directory -Force out/Plugins | Out-Null
-            Get-ChildItem build -Recurse -Directory -Filter *.vst3 |
-              Where-Object { $_.FullName -match 'Release\\VST3\\[^\\]+\.vst3$' } |
-              ForEach-Object { Copy-Item $_.FullName -Destination out/Plugins/ -Recurse -Force }
-          }
-          Get-ChildItem out -Recurse | Select-Object FullName, Length
-
+          New-Item -ItemType Directory -Force out/App | Out-Null
+          Copy-Item build/GubeeLoops_artefacts/Release/GubeeLoops.exe out/App/
       - uses: actions/upload-artifact@v4
         with:
-          name: gubee-${{ matrix.part }}
+          name: gubee-app
           path: out
-
       - name: Publish failure log
         if: failure()
         shell: pwsh
@@ -78,28 +116,89 @@ jobs:
             Get-Content ci.log -Tail 400 | Out-File logpub/tail.txt
           } else { "no log" | Out-File logpub/errors.txt }
           cd logpub
-          git init -q -b ci-log-${{ matrix.part }}
-          git config user.name "gubee-ci"
-          git config user.email "ci@users.noreply.github.com"
-          git add -A
-          git commit -qm "CI failure log ${{ github.sha }}"
-          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-log-${{ matrix.part }}
+          git init -q -b ci-log-app
+          git config user.name "gubee-ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -qm "CI failure log ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-log-app
+
+  plugins:
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [ 1, 2, 3, 4 ]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Cache JUCE source
+        uses: actions/cache@v4
+        with:
+          path: juce
+          key: juce-${{ env.JUCE_TAG }}
+      - name: Get JUCE
+        shell: pwsh
+        run: if (!(Test-Path juce/CMakeLists.txt)) { git clone -q --depth 1 --branch $env:JUCE_TAG https://github.com/juce-framework/JUCE.git juce }
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+            "-DGUBEE_JUCE_DIR=$pwd/juce" -DGUBEE_BUILD_APP=OFF -DGUBEE_BUILD_PLUGINS=ON `
+            -DGUBEE_PLUGIN_GROUP=${{ matrix.group }} *>&1 | Tee-Object -FilePath ci.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --parallel 4 *>&1 | Tee-Object -FilePath ci.log -Append
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          sccache --show-stats
+      - name: Collect
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/Plugins | Out-Null
+          Get-ChildItem build -Recurse -Directory -Filter *.vst3 |
+            Where-Object { $_.FullName -match 'Release\\VST3\\[^\\]+\.vst3$' } |
+            ForEach-Object { Copy-Item $_.FullName -Destination out/Plugins/ -Recurse -Force }
+          Get-ChildItem out -Recurse | Select-Object FullName, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gubee-plugins-${{ matrix.group }}
+          path: out
+      - name: Publish failure log
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force logpub | Out-Null
+          if (Test-Path ci.log) {
+            Select-String -Path ci.log -Pattern "error|Error|CMake Error|fatal" | Select-Object -First 300 | ForEach-Object { $_.Line } | Out-File logpub/errors.txt
+            Get-Content ci.log -Tail 400 | Out-File logpub/tail.txt
+          } else { "no log" | Out-File logpub/errors.txt }
+          cd logpub
+          git init -q -b ci-log-plugins-${{ matrix.group }}
+          git config user.name "gubee-ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -qm "CI failure log ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-log-plugins-${{ matrix.group }}
 
   publish:
-    needs: build
+    needs: [ changes, app, plugins ]
+    if: always() && needs.changes.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dl
-      - name: Push binaries to the 'windows-build' branch
+      - name: Merge with the previous build and push to 'windows-build'
         run: |
-          mkdir pub && cd pub
-          git init -q -b windows-build
-          cp -r ../dl/gubee-app/* .
-          for d in ../dl/gubee-plugins-*; do cp -r "$d"/* .; done
-          echo "Built from ${GITHUB_SHA} on $(date -u)" > BUILD_INFO.txt
+          git clone -q --depth 1 -b windows-build "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" pub || (mkdir pub && cd pub && git init -q -b windows-build)
+          cd pub
+          if [ -d ../dl/gubee-app ]; then rm -rf App; cp -r ../dl/gubee-app/* .; fi
+          if ls ../dl/gubee-plugins-* >/dev/null 2>&1; then rm -rf Plugins; for d in ../dl/gubee-plugins-*; do cp -r "$d"/* .; done; fi
+          echo "Built from ${GITHUB_SHA} on $(date -u)  (app rebuilt: ${{ needs.changes.outputs.app }}, plugins rebuilt: ${{ needs.changes.outputs.plugins }})" > BUILD_INFO.txt
           git config user.name "gubee-ci"
           git config user.email "ci@users.noreply.github.com"
-          git add -A && git commit -qm "Windows build ${GITHUB_SHA}"
+          git add -A && git commit -qm "Windows build ${GITHUB_SHA}" || echo "nothing new"
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" windows-build
