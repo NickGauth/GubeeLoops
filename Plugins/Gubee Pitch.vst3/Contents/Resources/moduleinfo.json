@@ -1,0 +1,48 @@
+{
+  "Name": "Gubee Pitch",
+  "Version": "0.1.0",
+  "Factory Info": {
+    "Vendor": "Gubee",
+    "URL": "",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false,
+    },
+  },
+  "Classes": [
+    {
+      "CID": "ABCDEF019182FAEB4775626547625074",
+      "Category": "Audio Module Class",
+      "Name": "Gubee Pitch",
+      "Vendor": "Gubee",
+      "Version": "0.1.0",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+        "Pitch Shift",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+    {
+      "CID": "ABCDEF011234ABCD4775626547625074",
+      "Category": "Component Controller Class",
+      "Name": "Gubee Pitch",
+      "Vendor": "Gubee",
+      "Version": "0.1.0",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+        "Pitch Shift",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+  ],
+}

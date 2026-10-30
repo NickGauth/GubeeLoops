@@ -1,0 +1,48 @@
+{
+  "Name": "Gubee Clipper",
+  "Version": "0.1.0",
+  "Factory Info": {
+    "Vendor": "Gubee",
+    "URL": "",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false,
+    },
+  },
+  "Classes": [
+    {
+      "CID": "ABCDEF019182FAEB477562654762436C",
+      "Category": "Audio Module Class",
+      "Name": "Gubee Clipper",
+      "Vendor": "Gubee",
+      "Version": "0.1.0",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+        "Dynamics",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+    {
+      "CID": "ABCDEF011234ABCD477562654762436C",
+      "Category": "Component Controller Class",
+      "Name": "Gubee Clipper",
+      "Vendor": "Gubee",
+      "Version": "0.1.0",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+        "Dynamics",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+  ],
+}
